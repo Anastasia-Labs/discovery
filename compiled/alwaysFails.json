@@ -1,0 +1,5 @@
+{
+    "cborHex": "4746010000222601",
+    "description": "Always Fails",
+    "type": "PlutusScriptV2"
+}
