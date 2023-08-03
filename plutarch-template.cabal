@@ -170,6 +170,7 @@ library
     Types.Classes
     Types.Constants
     Types.DiscoverySet 
+    Types.LiquiditySet
     PriceDiscoveryEvent.Utils
     PriceDiscoveryEvent.Mint.Common
     PriceDiscoveryEvent.Mint.Helpers

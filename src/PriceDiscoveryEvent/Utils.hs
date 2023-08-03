@@ -86,21 +86,20 @@ pcountScriptInputs =
      in go # 0
 
 pfoldl2 ::
-  (PListLike list1, PListLike list2, PElemConstraint list1 a, PElemConstraint list2 b) =>
-  Term s ((acc :--> a :--> b :--> acc) :--> acc :--> list1 a :--> list2 b :--> acc)
+  (PListLike listA, PListLike listB, PElemConstraint listA a, PElemConstraint listB b) =>
+  Term s ((acc :--> a :--> b :--> acc) :--> acc :--> listA a :--> listB b :--> acc)
 pfoldl2 =
   phoistAcyclic $ plam $ \func ->
     pfix #$ plam $ \self acc la lb ->
       pelimList
-        ( \a tas ->
+        ( \a as ->
             pelimList
-              (\b tbs -> self # (func # acc # a # b) # tas # tbs)
+              (\b bs -> self # (func # acc # a # b) # as # bs)
               perror
               lb
         )
         (pif (pnull # lb) acc perror)
         la
-
 
 {- | Finds the associated Currency symbols that contain the given token
   name.
