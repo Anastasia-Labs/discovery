@@ -84,7 +84,6 @@ data PDiscoveryLaunchConfig (s :: S)
           ( PDataRecord
               '[ "discoveryDeadline" ':= PPOSIXTime
                , "penaltyAddress" ':= PAddress
-               , "rewardCS" ':= PCurrencySymbol
                , "globalCred" ':= PStakingCredential
                ]
           )
