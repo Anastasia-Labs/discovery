@@ -81,6 +81,7 @@ data PLiquidityFoldMintConfig (s :: S)
               '[ "nodeCS" ':= PCurrencySymbol
                , "foldAddr" ':= PAddress
                , "discoveryDeadline" ':= PPOSIXTime
+               , "oref" ':= PTxOutRef
                ]
           )
       )
@@ -181,7 +182,7 @@ pburnCommitFold = phoistAcyclic $
 pmintCommitFold :: Term s (PFoldMintConfig :--> PScriptContext :--> PUnit)
 pmintCommitFold = phoistAcyclic $ 
   plam $ \fconfig ctx -> unTermCont $ do 
-    foldConfF <- pletFieldsC @'["nodeCS", "foldAddr", "discoveryDeadline"] fconfig 
+    foldConfF <- pletFieldsC @'["nodeCS", "foldAddr", "discoveryDeadline", "oref"] fconfig 
     contextFields <- pletFieldsC @'["txInfo", "purpose"] ctx
 
     PMinting policy <- pmatchC contextFields.purpose
@@ -206,7 +207,7 @@ pmintCommitFold = phoistAcyclic $
 
     let foldOutDatum = pfromPDatum @PFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
     foldOutDatumF <- pletFieldsC @'["currNode", "committed"] foldOutDatum
-
+    let hasInit = phasInput # info.inputs # foldConfF.oref
     let foldInitChecks =
           pand'List
             [ pfromData numMinted #== 1

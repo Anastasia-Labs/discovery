@@ -25,13 +25,14 @@ import PriceDiscoveryEvent.Mint.Common (
   pInit,
   pInsert,
   pRemove,
+  pClaim
  )
 import PriceDiscoveryEvent.Mint.Helpers (
   hasUtxoWithRef,
  )
 
 import Plutarch.Prelude
-import PriceDiscoveryEvent.Utils (pand'List, passert)
+import PriceDiscoveryEvent.Utils (pand'List, passert, pcond)
 import Types.DiscoverySet (PDiscoveryConfig (..), PDiscoveryNodeAction (..))
 
 --------------------------------
@@ -70,8 +71,14 @@ mkDiscoveryNodeMP cfg = plam $ \discConfig redm ctx -> P.do
               ]
       pif insertChecks (pInsert cfg common # act.keyToInsert # act.coveringNode) perror
     PRemove action -> P.do
+      configF <- pletFields @'["discoveryDeadline"] discConfig
       act <- pletFields @'["keyToRemove", "coveringNode"] action
-      (pRemove cfg common vrange discConfig outs sigs # act.keyToRemove # act.coveringNode)
+      discDeadline <- plet configF.discoveryDeadline
+      pcond 
+        [ ((pbefore # discDeadline # vrange), (pClaim cfg common outs sigs # act.keyToRemove))
+        , ((pafter # discDeadline # vrange), (pRemove cfg common vrange discConfig outs sigs # act.keyToRemove # act.coveringNode))
+        ]
+        perror 
 
 mkDiscoveryNodeMPW ::
   Config ->

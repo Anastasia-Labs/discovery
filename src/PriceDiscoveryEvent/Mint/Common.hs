@@ -5,6 +5,7 @@ module PriceDiscoveryEvent.Mint.Common (
   pDeinit,
   pRemove,
   pInsert,
+  pClaim
 ) where
 
 import Plutarch.Api.V1.Value (plovelaceValueOf, pnormalize, pvalueOf)
@@ -57,7 +58,7 @@ import PriceDiscoveryEvent.Utils (
   (#>),
   (#>=),
  )
-import Types.Constants (minAda, pcorrNodeTN, pnodeKeyTN, poriginNodeTN, pparseNodeKey)
+import Types.Constants (minAda, minCommitment, pcorrNodeTN, pnodeKeyTN, poriginNodeTN, pparseNodeKey)
 import Types.DiscoverySet (
   PDiscoveryConfig,
   PDiscoverySetNode,
@@ -65,6 +66,7 @@ import Types.DiscoverySet (
   asPredecessorOf,
   asSuccessorOf,
   isEmptySet,
+  isNothing,
   isFirstNode,
   isLastNode,
   validNode,
@@ -119,12 +121,12 @@ parseNodeOutputUtxo cfg = phoistAcyclic $
     -- Prevents TokenDust attack
     passert "All FSN tokens from node policy" $ 
       pheadSingleton # (pfindCurrencySymbolsByTokenPrefix # value # pconstant "FSN") #== nodeCS
-    passert "Too many assets" $ pcountOfUniqueTokens # value #<= 3
+    passert "Too many assets" $ pcountOfUniqueTokens # value #== 2
     passert "Incorrect number of nodeTokens" $ amount #== 1
     passert "node is not ordered" $ validNode # datum
     passert "Incorrect token name" $ nodeKey #== datumKey
-    passert "Does not hold minAda" $
-      plovelaceValueOf # value #>= minAda
+    passert "Does not hold nodeAda" $
+      plovelaceValueOf # value #>= minCommitment
     pcon (PPair value datum)
 
 makeCommon ::
@@ -217,10 +219,14 @@ pInit cfg common = P.do
 
   pconstant ()
 
+-- TODO add deadline check
 pDeinit :: forall s. Config -> PPriceDiscoveryCommon s -> Term s PUnit
 pDeinit cfg common = P.do
   -- Input Checks
-  PPair _ otherNodes <- pmatch $ pfindWithRest # plam (\nodePair -> pmatch nodePair (\(PPair _ dat) -> isEmptySet # dat)) # common.nodeInputs
+  -- The following commented code should be used instead for protocols where node removal
+  -- needs to preserve the integrity of the linked list.
+  -- PPair _ otherNodes <- pmatch $ pfindWithRest # plam (\nodePair -> pmatch nodePair (\(PPair _ dat) -> isEmptySet # dat)) # common.nodeInputs
+  PPair _ otherNodes <- pmatch $ pfindWithRest # plam (\nodePair -> pmatch nodePair (\(PPair _ dat) -> isNothing # (pfield @"key" # dat))) # common.nodeInputs
   passert "Deinit must spend exactly one node" $ pnull # otherNodes
   -- Output Checks:
   passert "Deinit must not output nodes" $ pnull # common.nodeOutputs
@@ -316,17 +322,14 @@ pRemove cfg common vrange discConfig outs sigs = plam $ \pkToRemove node -> P.do
 
   configF <- pletFields @'["discoveryDeadline", "penaltyAddress"] discConfig
 
-  ownInputLovelace <- plet $ plovelaceValueOf # removedValue
-
-  ownInputFee <- plet $ pdivideCeil # ownInputLovelace # 4
-  discDeadline <- plet configF.discoveryDeadline
-  validityRange <- plet vrange
+  let ownInputLovelace = plovelaceValueOf # removedValue
+      ownInputFee = pdivideCeil # ownInputLovelace # 4
+      discDeadline = configF.discoveryDeadline
   
   let finalCheck =
-        pif
-          (pafter # discDeadline # validityRange) -- user committing before deadline 
+          -- user committing before deadline 
           ( pif
-              (pafter # (discDeadline - 86_400_000) # validityRange) -- user committing before 24 hours before deadline
+              (pafter # (discDeadline - 86_400_000) # vrange) -- user committing before 24 hours before deadline
               (pconstant True)
               ( pany
                   # plam
@@ -341,11 +344,37 @@ pRemove cfg common vrange discConfig outs sigs = plam $ \pkToRemove node -> P.do
                   # outs -- must pay 25% fee
               )
           )
-          -- verify that this node has been processed by the rewards fold by checking that count of tokens is 3. 
-          ((pbefore # discDeadline # validityRange) #&& (pcountOfUniqueTokens # removedValue #== 3))
           
 
   passert "Removal broke Phase Rules." finalCheck
+
+  pconstant ()
+
+pClaim ::
+  forall (s :: S).
+  Config ->
+  PPriceDiscoveryCommon s ->
+  Term s (PBuiltinList PTxOut) ->
+  Term s (PBuiltinList (PAsData PPubKeyHash)) ->
+  Term s (PAsData PPubKeyHash :--> PUnit)
+pClaim cfg common outs sigs = plam $ \pkToRemove -> P.do
+  keyToRemove <- plet . pto . pfromData $ pkToRemove
+  
+  -- Input Checks
+  PPair removedValue _removedDatum <- pmatch (pheadSingleton # common.nodeInputs)
+
+  nodeToRemoveTN <- plet (pnodeKeyTN # keyToRemove)
+
+  passert "Incorrect mint for Remove" $
+    pvalueOf # removedValue # common.ownCS # nodeToRemoveTN #== 1
+
+  passert "Incorrect mint for Remove" $
+    correctNodeTokenMinted # common.ownCS # nodeToRemoveTN # (-1) # common.mint
+
+  passert "signed by user." (pelem # pkToRemove # sigs)
+          
+  -- verify that this node has been processed by the rewards fold by checking that count of tokens is 3. 
+  passert "Claim broke phase rules." (pcountOfUniqueTokens # removedValue #>= 3)
 
   pconstant ()
 
