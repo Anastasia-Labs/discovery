@@ -74,6 +74,7 @@ pDiscoverySetValidator cfg prefix = plam $ \discConfig dat redmn ctx' ->
 
         case otherRedeemers of 
           PLinkedListAct _ -> P.do
+            -- TODO: Currently launchpad token cannot start with FSN
             passert
               "Must mint/burn for any FinSet input"
               (pcontainsCurrencySymbols # pfromData info.mint # potentialNodeCSs)

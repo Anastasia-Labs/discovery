@@ -225,8 +225,8 @@ pDeinit cfg common = P.do
   -- Input Checks
   -- The following commented code should be used instead for protocols where node removal
   -- needs to preserve the integrity of the linked list.
-  -- PPair _ otherNodes <- pmatch $ pfindWithRest # plam (\nodePair -> pmatch nodePair (\(PPair _ dat) -> isEmptySet # dat)) # common.nodeInputs
-  PPair _ otherNodes <- pmatch $ pfindWithRest # plam (\nodePair -> pmatch nodePair (\(PPair _ dat) -> isNothing # (pfield @"key" # dat))) # common.nodeInputs
+  PPair _ otherNodes <- pmatch $ pfindWithRest # plam (\nodePair -> pmatch nodePair (\(PPair _ dat) -> isEmptySet # dat)) # common.nodeInputs
+  -- PPair _ otherNodes <- pmatch $ pfindWithRest # plam (\nodePair -> pmatch nodePair (\(PPair _ dat) -> isNothing # (pfield @"key" # dat))) # common.nodeInputs
   passert "Deinit must spend exactly one node" $ pnull # otherNodes
   -- Output Checks:
   passert "Deinit must not output nodes" $ pnull # common.nodeOutputs

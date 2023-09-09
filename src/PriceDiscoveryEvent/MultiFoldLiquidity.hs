@@ -216,6 +216,7 @@ pmintCommitFold = phoistAcyclic $
             , pfromData foldOutDatumF.committed #== pconstant 0 
             , pvalueOf # refInputF.value # foldConfF.nodeCS # poriginNodeTN #== pconstant 1
             , pbefore # pfromData foldConfF.discoveryDeadline # info.validRange
+            , hasInit  
             ]
     pure $
         pif foldInitChecks
@@ -511,7 +512,7 @@ prewardSuccessor nodeCS projectCS projectTN totalProjectTokens totalCommitted st
   nodeOutputF <- pletFieldsC @'["address", "value", "datum"] outputNode
   nodeOutputValue <- pletC $ nodeOutputF.value 
   let owedProjectValue = Value.psingleton # projectCS # projectTN # owedProjectTokens 
-      owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) 
+      owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) -- [("",[("", -100)])] 
       nodeKey = toScott $ pfromData nodeInDatF.key
       successorChecks = 
         pand'List 
