@@ -59,6 +59,7 @@ import PriceDiscoveryEvent.Utils (
   pand'List,
   pcond,
   pelemAt',
+  pelemAtFlipped',
   phasInput,
   pheadSingleton,
   ptryLookupValue,
@@ -70,8 +71,10 @@ import PriceDiscoveryEvent.Utils (
  )
 import Types.Classes
 import Types.Constants (commitFoldTN, minAda, nodeAda, poriginNodeTN, rewardFoldTN, projectTokenHolderTN, foldingFee)
-import Types.DiscoverySet
-import PriceDiscoveryEvent.Utils ((#-))
+import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum )
+import Types.DiscoverySet (PNodeKey(..), PNodeKeyState(..))
+
+import PriceDiscoveryEvent.Utils ((#-), pcountOfUniqueTokens)
 
 data PLiquidityFoldMintConfig (s :: S)
   = PLiquidityFoldMintConfig
@@ -109,7 +112,7 @@ data PLiquidityFoldDatum (s :: S)
       ( Term
           s
           ( PDataRecord
-              '[ "currNode" ':= PDiscoverySetNode
+              '[ "currNode" ':= PLiquiditySetNode
                , "committed" ':= PInteger
                , "owner" ':= PAddress
                ]
@@ -139,13 +142,13 @@ data PLiquidityFoldAct (s :: S)
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData)
 
-instance DerivePlutusType PFoldAct where
+instance DerivePlutusType PLiquidityFoldAct where
   type DPTStrat _ = PlutusTypeData
 
 deriving anyclass instance
-  PTryFrom PData PFoldAct
+  PTryFrom PData PLiquidityFoldAct
 
-data PCommitFoldState (s :: S) = PCommitFoldState
+data PCollectionFoldState (s :: S) = PCollectionFoldState
   { key :: Term s PNodeKeyState
   , next :: Term s PNodeKeyState
   , committed :: Term s PInteger
@@ -154,16 +157,16 @@ data PCommitFoldState (s :: S) = PCommitFoldState
   deriving stock (Generic)
   deriving anyclass (PlutusType, PEq)
 
-instance DerivePlutusType PCommitFoldState where
+instance DerivePlutusType PCollectionFoldState where
   type DPTStrat _ = PlutusTypeScott
 
 pmintFoldPolicyW :: Term s (PLiquidityFoldMintConfig :--> PMintingPolicy)
 pmintFoldPolicyW = phoistAcyclic $ 
   plam $ \fconfig redm ctx ->
-    let red = punsafeCoerce @_ @_ @PFoldMintAct redm 
+    let red = punsafeCoerce @_ @_ @PLiquidityFoldMintAct redm 
      in pmatch red $ \case 
-          PMintFold _ -> popaque $ pmintCommitFold # fconfig # ctx 
-          PBurnFold _ -> popaque $ pburnCommitFold # ctx 
+          PLiquidityMintFold _ -> popaque $ pmintCommitFold # fconfig # ctx 
+          PLiquidityBurnFold _ -> popaque $ pburnCommitFold # ctx 
 
 pburnCommitFold :: Term s (PScriptContext :--> PUnit)
 pburnCommitFold = phoistAcyclic $ 
@@ -173,13 +176,13 @@ pburnCommitFold = phoistAcyclic $
     ownPolicyId <- pletC $ pfield @"_0" # policy
 
     info <- pletFieldsC @'["mint"] contextFields.txInfo
-    tkPairs <- pletC $ ptryLookupValue # ownPolicyId # (pnormalize # info.mint)
+    let tkPairs = ptryLookupValue # ownPolicyId # (pnormalize # info.mint)
     tkPair <- pletC (pheadSingleton # tkPairs)
     let numMinted = psndBuiltin # tkPair 
     pure $
       pif ( pfromData numMinted #== -1 ) (pconstant ()) perror 
 
-pmintCommitFold :: Term s (PFoldMintConfig :--> PScriptContext :--> PUnit)
+pmintCommitFold :: Term s (PLiquidityFoldMintConfig :--> PScriptContext :--> PUnit)
 pmintCommitFold = phoistAcyclic $ 
   plam $ \fconfig ctx -> unTermCont $ do 
     foldConfF <- pletFieldsC @'["nodeCS", "foldAddr", "discoveryDeadline", "oref"] fconfig 
@@ -188,9 +191,9 @@ pmintCommitFold = phoistAcyclic $
     PMinting policy <- pmatchC contextFields.purpose
     ownPolicyId <- pletC $ pfield @"_0" # policy
 
-    info <- pletFieldsC @'["referenceInputs", "outputs", "mint", "validRange"] contextFields.txInfo
+    info <- pletFieldsC @'["referenceInputs", "inputs", "outputs", "mint", "validRange"] contextFields.txInfo
 
-    tkPairs <- pletC $ ptryLookupValue # ownPolicyId # (pnormalize # info.mint)
+    let tkPairs = ptryLookupValue # ownPolicyId # (pnormalize # info.mint)
     tkPair <- pletC (pheadSingleton # tkPairs)
 
     let numMinted = psndBuiltin # tkPair
@@ -200,14 +203,14 @@ pmintCommitFold = phoistAcyclic $
     refInputF <- pletFieldsC @'["value", "datum"] refInput
 
     (POutputDatum refInpDatum) <- pmatchC refInputF.datum
-    let refInpDat = pfromPDatum @PDiscoverySetNode # (pfield @"outputDatum" # refInpDatum)
+    let refInpDat = pfromPDatum @PLiquiditySetNode # (pfield @"outputDatum" # refInpDatum)
 
     foldOutputF <- pletFieldsC @'["value", "datum"] foldOutput
     (POutputDatum foldOutputDatum) <- pmatchC foldOutputF.datum
 
-    let foldOutDatum = pfromPDatum @PFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
+    let foldOutDatum = pfromPDatum @PLiquidityFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
     foldOutDatumF <- pletFieldsC @'["currNode", "committed"] foldOutDatum
-    let hasInit = phasInput # info.inputs # foldConfF.oref
+    let hasInitUTxO = phasInput # info.inputs # foldConfF.oref
     let foldInitChecks =
           pand'List
             [ pfromData numMinted #== 1
@@ -216,68 +219,126 @@ pmintCommitFold = phoistAcyclic $
             , pfromData foldOutDatumF.committed #== pconstant 0 
             , pvalueOf # refInputF.value # foldConfF.nodeCS # poriginNodeTN #== pconstant 1
             , pbefore # pfromData foldConfF.discoveryDeadline # info.validRange
-            , hasInit  
+            , hasInitUTxO  
             ]
     pure $
         pif foldInitChecks
             ( pconstant () )
             perror 
 
-pfoldValidatorW :: Term s (PAsData PCurrencySymbol :--> PAsData PPOSIXTime :--> PValidator)
+pfoldValidatorW :: Term s (PAsData PCurrencySymbol :--> PAsData PCurrencySymbol :--> PValidator)
 pfoldValidatorW = phoistAcyclic $
-  plam $ \nodeCS discoveryDeadline datum redeemer ctx ->
-    let dat = punsafeCoerce @_ @_ @PFoldDatum datum
-        red = punsafeCoerce @_ @_ @PFoldAct redeemer
+  plam $ \nodeCS tokenHolderCS datum redeemer ctx ->
+    let dat = punsafeCoerce @_ @_ @PLiquidityFoldDatum datum
+        red = punsafeCoerce @_ @_ @PLiquidityFoldAct redeemer
      in pmatch red $ \case
-          PFoldNodes r -> pletFields @'["nodeInpIdxs", "nodeOutIdxs"] r $ \redF ->
-            pfoldNodes # nodeCS # discoveryDeadline # redF.nodeIdxs # dat # ctx
-          PReclaim _ -> unTermCont $ do 
-            PPubKeyCredential ((pfield @"_0" #) -> ownerPkh) <- pmatchC (pfield @"credential" # (pfield @"owner" # dat))
+          PLiquidityFoldNodes r -> pletFields @'["nodeInpIdxs", "nodeOutIdxs"] r $ \redF ->
+            pfoldNodes # nodeCS # redF.nodeInpIdxs # redF.nodeOutIdxs # dat # ctx
+          PLiquidityReclaim _ -> unTermCont $ do 
+            -- PPubKeyCredential ((pfield @"_0" #) -> ownerPkh) <- pmatchC (pfield @"credential" # (pfield @"owner" # dat))
             ctxF <- pletFieldsC @'["txInfo", "purpose"] ctx
             infoF <- pletFieldsC @'["inputs", "signatories", "mint"] ctxF.txInfo
+            let projectInput = 
+                  pany @PBuiltinList
+                    # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # pfromData tokenHolderCS # projectTokenHolderTN #== 1)
+                    # infoF.inputs
             PSpending ((pfield @"_0" #) -> ownRef) <- pmatchC ctxF.purpose
             let ownInput = ptryOwnInput # infoF.inputs # ownRef
-            ownInputF <- pletFieldsC @'["address", "value"] ownInput
+            ownInputF <- pletFieldsC @'["address", "value", "datum"] ownInput
+            (POutputDatum commitDatum) <- pmatchC ownInputF.datum
+            let commitDat = punsafeCoerce @_ @_ @PLiquidityFoldDatum (pfield @"outputDatum" # commitDatum)
+            commitDatF <- pletFieldsC @'["currNode", "committed", "owner"] commitDat
+            commitFoldNodeF <- pletFieldsC @'["key", "next"] commitDatF.currNode
             let possibleCSs = pfindCurrencySymbolsByTokenName # ownInputF.value # commitFoldTN 
-                pthCS = pheadSingleton # possibleCSs
-                tkhPairs = ptryLookupValue # pthCS # infoF.mint
-                tkhPair = (pheadSingleton # tkhPairs)
-                thkMinted = psndBuiltin # tkhPair 
+                commitCS = pheadSingleton # possibleCSs
+                commitPairs = ptryLookupValue # commitCS # infoF.mint
+                commitPair = (pheadSingleton # commitPairs)
+                commitMinted = psndBuiltin # commitPair 
+                reclaimChecks = 
+                  pand'List 
+                    [ pmatch
+                        commitFoldNodeF.next
+                        ( \case
+                            PEmpty _ -> pconstant True
+                            PKey _ -> pconstant False
+                        )
+                    , (pfromData commitMinted #== -1)
+                    , projectInput
+                    ]
             pure $ 
-              pif (ptxSignedByPkh # ownerPkh # infoF.signatories #&& pfromData thkMinted #== -1)
+              pif reclaimChecks
                   (popaque $ pconstant ())
                   perror 
-            
 
-pisSuccessor :: Term s (PCurrencySymbol :--> PCommitFoldState :--> PTxOut :--> PCommitFoldState)
-pisSuccessor = plam $ \nodeCS accNode node -> unTermCont $ do
+pfoldBijectiveUTxOs ::
+  (Term s a -> Term s PTxOut -> Term s PTxOut -> Term s a) ->
+  Term s a -> 
+  Term s (PBuiltinList PTxInInfo) ->
+  Term s (PBuiltinList PTxOut) ->   
+  Term s (PBuiltinList (PAsData PInteger)) ->
+  Term s (PBuiltinList (PAsData PInteger)) ->
+  Term s a
+pfoldBijectiveUTxOs f acc txInputs txOutputs inputIdxs outputIdxs = 
+  plet (pelemAtFlipped' # txInputs) $ \pelemAtInputs ->
+    plet (pelemAtFlipped' # txOutputs) $ \pelemAtOutputs ->
+      pfoldl2
+        # plam
+          ( \state inputIdx outputIdx ->
+            f state (pfield @"resolved" # (pelemAtInputs # pfromData inputIdx)) (pelemAtOutputs # pfromData outputIdx)
+          )
+        # acc
+        # inputIdxs
+        # outputIdxs
+
+pisLiquiditySuccessor :: Term s PCurrencySymbol -> Term s PCollectionFoldState -> Term s PTxOut -> Term s PTxOut -> Term s PCollectionFoldState 
+pisLiquiditySuccessor nodeCS accNode inputNode outputNode = unTermCont $ do
   accNodeF <- pmatchC accNode
-  nodeF <- pletFieldsC @'["value", "datum"] node
-  nodeValue <- pletC nodeF.value
-  let nodeDatum = punsafeCoerce @_ @_ @PDiscoverySetNode $ (ptryFromInlineDatum # nodeF.datum)
-      hasNodeTk = pvalueOfOneScott # nodeCS # nodeValue
-  currNodeF <- pletFieldsC @'["key", "next"] nodeDatum
+  inputNodeF <- pletFieldsC @'["address", "value", "datum"] inputNode
+  inputNodeValue <- pletC $ pforgetPositive inputNodeF.value
+  let inputNodeDatum = punsafeCoerce @_ @_ @PLiquiditySetNode $ (ptryFromInlineDatum # inputNodeF.datum)  
+  inputNodeDatumF <- pletFieldsC @'["key", "next", "commitment"] inputNodeDatum
+  
+  outputNodeF <- pletFieldsC @'["address", "value", "datum"] outputNode
+  let outputNodeDatum = punsafeCoerce @_ @_ @PLiquiditySetNode $ (ptryFromInlineDatum # outputNodeF.datum)  
+  outputNodeDatumF <- pletFieldsC @'["key", "next", "commitment"] outputNodeDatum
 
-  let nodeKey = toScott $ pfromData currNodeF.key
-      accState =
-        pcon @PCommitFoldState
+  -- outputNodeValue <- pletC $ nodeOutputF.value 
+  nodeCommitment <- pletC $ (plovelaceValueOf # inputNodeValue) - nodeAda
+
+  let nodeKey = toScott $ pfromData inputNodeDatumF.key
+      owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) 
+      successorChecks = 
+        pand'List 
+          [ (accNodeF.next #== nodeKey)
+          , (inputNodeValue <> owedAdaValue) #== pforgetPositive outputNodeF.value
+          , outputNodeF.address #== inputNodeF.address 
+          --, outputNodeF.datum #== inputNodeF.datum 
+          , outputNodeDatumF.key #== inputNodeDatumF.key
+          , outputNodeDatumF.next #== inputNodeDatumF.next
+          , outputNodeDatumF.commitment #== nodeCommitment
+          , pvalueOfOneScott # nodeCS # inputNodeValue
+          ]
+      newAccState =
+        pcon @PCollectionFoldState
           accNodeF
-            { next = toScott (pfromData currNodeF.next)
-            , committed = accNodeF.committed + (plovelaceValueOf # nodeValue) - nodeAda
-            -- , num = accNodeF.num + 1
+            { next = toScott (pfromData inputNodeDatumF.next)
+            , committed = accNodeF.committed + nodeCommitment
+            , num = accNodeF.num + 1
             }
-  pure $ pif (pand' # (accNodeF.next #== nodeKey) # hasNodeTk) accState perror
+  pure $ pif successorChecks newAccState perror
 
-pfoldNodes :: Term s (PAsData PCurrencySymbol :--> PAsData PPOSIXTime :--> PBuiltinList (PAsData PInteger) :--> PBuiltinList (PAsData PInteger) :--> PFoldDatum :--> PScriptContext :--> POpaque)
+pfoldNodes :: Term s (PAsData PCurrencySymbol :--> PBuiltinList (PAsData PInteger) :--> PBuiltinList (PAsData PInteger) :--> PLiquidityFoldDatum :--> PScriptContext :--> POpaque)
 pfoldNodes = phoistAcyclic $
-  plam $ \nodeCS discoveryDeadline nodeInputIndices nodeOutIndices dat ctx -> unTermCont $ do
+  plam $ \nodeCS nodeInputIndices nodeOutIndices dat ctx -> unTermCont $ do
     ctxF <- pletFieldsC @'["txInfo", "purpose"] ctx
     -- all reference inputs have node currency symbol
     -- all reference inputs are connected in the linked list
     info <- pletFieldsC @'["inputs", "referenceInputs", "outputs", "mint", "validRange"] ctxF.txInfo
     PSpending ((pfield @"_0" #) -> ownRef) <- pmatchC ctxF.purpose
+    
+    txInputs <- pletC $ info.inputs
 
-    let ownInput = ptryOwnInput # info.inputs # ownRef
+    let ownInput = ptryOwnInput # txInputs # ownRef
     ownInputF <- pletFieldsC @'["address", "value"] ownInput
     PScriptCredential ((pfield @"_0" #) -> ownValHash) <- pmatchC (pfield @"credential" # ownInputF.address)
     datF <- pletFieldsC @'["currNode", "committed", "owner"] dat
@@ -289,39 +350,37 @@ pfoldNodes = phoistAcyclic $
 
     let commitFoldState =
           pcon
-            ( PCommitFoldState
+            ( PCollectionFoldState
                 (toScott $ pfromData currFoldNodeF.key)
                 (toScott $ pfromData currFoldNodeF.next)
                 (pfromData datF.committed)
                 1 
             )
-        foldOutDatum = pfromPDatum @PFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
+        foldOutDatum = pfromPDatum @PLiquidityFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
     newFoldDatumF <- pletFieldsC @'["currNode", "committed", "owner"] foldOutDatum
     newFoldNodeF <- pletFieldsC @'["key", "next"] newFoldDatumF.currNode
 
-    let refInputs :: Term _ (PBuiltinList PTxInInfo)
-        refInputs = info.referenceInputs
+    -- let nodeInputs :: Term _ (PBuiltinList PTxOut)
+    --     nodeInputs = pmap @PBuiltinList # plam (\i -> pfield @"resolved" # (pelemAt' # pfromData i # refIns)) # nodeInputIndices
+    --     nodeOutputs = pmap @PBuiltinList # plam (\i -> pfield @"resolved" # (pelemAt' # pfromData i # info.outputs)) # nodeOutIndices
 
-    refIns <- pletC refInputs
+    newCommitFoldState <- pmatchC $ pfoldBijectiveUTxOs (pisLiquiditySuccessor $ pfromData nodeCS) commitFoldState txInputs info.outputs nodeInputIndices nodeOutIndices
 
-    let nodeInputs :: Term _ (PBuiltinList PTxOut)
-        nodeInputs = pmap @PBuiltinList # plam (\i -> pfield @"resolved" # (pelemAt' # pfromData i # refIns)) # nodeIndices
-        newCommitFoldState' = pfoldl # (pisSuccessor # pfromData nodeCS) # commitFoldState # nodeInputs
-    newCommitFoldState <- pmatchC newCommitFoldState'
-    let foldChecks =
+    let collectedAda = Value.psingleton # padaSymbol # padaToken # newCommitFoldState.committed 
+        foldChecks =
           pand'List
             [ currFoldNodeF.key #== newFoldNodeF.key
             , newCommitFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
             , pfromData newFoldDatumF.committed #== newCommitFoldState.committed
             , newFoldDatumF.owner #== datF.owner 
-            , pnoAdaValue # ownOutputF.value #== pnoAdaValue # ownInputF.value
-            , pbefore # pfromData discoveryDeadline # info.validRange
+            , pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
+            , (pcountScriptInputs # txInputs) #== newCommitFoldState.num 
             ]
     pure $
       pif foldChecks (popaque (pconstant ())) perror
 
-data PRewardMintFoldConfig (s :: S)
-  = PRewardMintFoldConfig
+data PDistributionFoldMintConfig (s :: S)
+  = PDistributionFoldMintConfig
       ( Term
           s
           ( PDataRecord
@@ -337,11 +396,11 @@ data PRewardMintFoldConfig (s :: S)
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PDataFields)
 
-instance DerivePlutusType PRewardMintFoldConfig where
+instance DerivePlutusType PDistributionFoldMintConfig where
   type DPTStrat _ = PlutusTypeData
 
-data PRewardFoldConfig (s :: S)
-  = PRewardFoldConfig
+data PDistributionFoldConfig (s :: S)
+  = PDistributionFoldConfig
       ( Term
           s
           ( PDataRecord
@@ -355,15 +414,15 @@ data PRewardFoldConfig (s :: S)
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PDataFields)
 
-instance DerivePlutusType PRewardFoldConfig where
+instance DerivePlutusType PDistributionFoldConfig where
   type DPTStrat _ = PlutusTypeData
 
-data PRewardFoldDatum (s :: S)
-  = PRewardFoldDatum
+data PDistributionFoldDatum (s :: S)
+  = PDistributionFoldDatum
       ( Term
           s
           ( PDataRecord
-              '[ "currNode" ':= PDiscoverySetNode
+              '[ "currNode" ':= PLiquiditySetNode
                , "totalProjectTokens" ':= PInteger
                , "totalCommitted" ':= PInteger 
                , "owner" ':= PAddress
@@ -373,14 +432,14 @@ data PRewardFoldDatum (s :: S)
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PDataFields)
 
-instance DerivePlutusType PRewardFoldDatum where
+instance DerivePlutusType PDistributionFoldDatum where
   type DPTStrat _ = PlutusTypeData
 
 deriving anyclass instance
-  PTryFrom PData PRewardFoldDatum
+  PTryFrom PData PDistributionFoldDatum
 
-data PRewardsFoldAct (s :: S)
-  = PRewardsFoldNodes
+data PDistributionFoldAct (s :: S)
+  = PDistributionFoldNodes
       ( Term
           s
           ( PDataRecord
@@ -389,18 +448,18 @@ data PRewardsFoldAct (s :: S)
                ]
           )
       )
-  | PRewardsFoldNode (Term s (PDataRecord '[]))
-  | PRewardsReclaim (Term s (PDataRecord '[]))
+  | PDistributionFoldNode (Term s (PDataRecord '[]))
+  | PDistributionReclaim (Term s (PDataRecord '[]))
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData)
 
-instance DerivePlutusType PRewardsFoldAct where
+instance DerivePlutusType PDistributionFoldAct where
   type DPTStrat _ = PlutusTypeData
 
 deriving anyclass instance
-  PTryFrom PData PRewardsFoldAct
+  PTryFrom PData PDistributionFoldAct
 
-pmintRewardFoldPolicyW :: Term s (PRewardMintFoldConfig :--> PMintingPolicy)
+pmintRewardFoldPolicyW :: Term s (PDistributionFoldMintConfig :--> PMintingPolicy)
 pmintRewardFoldPolicyW = phoistAcyclic $
   plam $ \rewardConfig _redm ctx -> unTermCont $ do
     rewardConfigF <- pletFieldsC @'["nodeCS", "tokenHolderCS", "rewardScriptAddr", "projectTN", "projectCS", "commitFoldCS"] rewardConfig
@@ -411,17 +470,13 @@ pmintRewardFoldPolicyW = phoistAcyclic $
 
     info <- pletFieldsC @'["inputs", "referenceInputs", "outputs", "mint"] contextFields.txInfo
 
-    mintedValue <- pletC $ (pnormalize # info.mint)
-    tkPairs <- pletC $ ptryLookupValue # ownPolicyId # mintedValue
+    mintedValue <- pletC (pnormalize # info.mint)
+    let tkPairs = ptryLookupValue # ownPolicyId # mintedValue
     tkPair <- pletC (pheadSingleton # tkPairs)
+    
+    txInputs <- pletC info.inputs
 
-    let commitInp = pfield @"resolved" #$ 
-          pheadSingleton
-            # ( pfilter @PBuiltinList
-                  # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # rewardConfigF.commitFoldCS # commitFoldTN #== 1)
-                  # info.inputs 
-              )
-        nodeRefInput = pfield @"resolved" #$          
+    let nodeRefInput = pfield @"resolved" #$          
           pheadSingleton
             # ( pfilter @PBuiltinList
                   # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # rewardConfigF.nodeCS # poriginNodeTN #== 1)
@@ -431,43 +486,42 @@ pmintRewardFoldPolicyW = phoistAcyclic $
           pheadSingleton
             # ( pfilter @PBuiltinList
                   # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # rewardConfigF.tokenHolderCS # projectTokenHolderTN #== 1)
-                  # info.inputs
+                  # txInputs
               )
         numMinted = psndBuiltin # tkPair
         foldOutput = ptryOutputToAddress # info.outputs # rewardConfigF.rewardScriptAddr
 
-    commitInpF <- pletFieldsC @'["value", "datum"] commitInp
-    (POutputDatum commitDatum) <- pmatchC commitInpF.datum
-    let commitDat = punsafeCoerce @_ @_ @PFoldDatum (pfield @"outputDatum" # commitDatum)
-    commitDatF <- pletFieldsC @'["currNode", "committed", "owner"] commitDat
-    commitFoldNodeF <- pletFieldsC @'["key", "next"] commitDatF.currNode
+    projectInpF <- pletFieldsC @'["value", "datum"] projectInput
+    (POutputDatum projectInpDatum) <- pmatchC projectInpF.datum
+    let projectInpDat = punsafeCoerce @_ @_ @PLiquidityHolderDatum (pfield @"outputDatum" # projectInpDatum)
+    projectInpDatF <- pletFieldsC @'["currNode", "totalCommitted"] projectInpDat
 
     refInputF <- pletFieldsC @'["value", "datum"] nodeRefInput
 
+    -- TODO: Optimize with unsafecoerce
     (POutputDatum refInpDatum) <- pmatchC refInputF.datum
-    let refInpDat = pfromPDatum @PDiscoverySetNode # (pfield @"outputDatum" # refInpDatum)
+    let refInpDat = punsafeCoerce @_ @_ @PLiquiditySetNode (pfield @"outputDatum" # refInpDatum)
 
     foldOutputF <- pletFieldsC @'["value", "datum"] foldOutput
     (POutputDatum foldOutputDatum) <- pmatchC foldOutputF.datum
-
-    let foldOutDatum = pfromPDatum @PRewardFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
+    let foldOutDatum = pfromPDatum @PDistributionFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
     foldOutDatumF <- pletFieldsC @'["currNode", "totalProjectTokens", "totalCommitted"] foldOutDatum
-
-    totalProjectTkns <- pletC foldOutDatumF.totalProjectTokens 
-    let foldInitChecks =
+    
+    totalProjectTkns <- pletC foldOutDatumF.totalProjectTokens
+    configProjectTN <- pletC rewardConfigF.projectTN 
+    configProjectCS <- pletC rewardConfigF.projectCS
+    foldOutputValue <- pletC foldOutputF.value
+    let collectedAda = Value.psingleton # padaSymbol # padaToken # (projectInpDatF.totalCommitted + minAda)
+        projectTokens = Value.psingleton # configProjectCS # configProjectTN # totalProjectTkns
+        rfoldToken = Value.psingleton # pfromData ownPolicyId # rewardFoldTN # 1
+        foldInitChecks =
           pand'List
             [ pfromData numMinted #== 1
             , foldOutDatumF.currNode #== refInpDat
-            , totalProjectTkns #== pvalueOf # foldOutputF.value # rewardConfigF.projectCS # rewardConfigF.projectTN
-            , totalProjectTkns #== pvalueOf # (pfield @"value" # projectInput) # rewardConfigF.projectCS # rewardConfigF.projectTN
-            , pvalueOf # foldOutputF.value # pfromData ownPolicyId # rewardFoldTN #== 1
-            , pmatch
-                commitFoldNodeF.next
-                ( \case
-                    PEmpty _ -> pconstant True
-                    PKey _ -> pconstant False
-                )
-            , commitDatF.committed #== foldOutDatumF.totalCommitted 
+            , totalProjectTkns #== pvalueOf # foldOutputValue # configProjectCS # configProjectTN
+            , totalProjectTkns #== pvalueOf # projectInpF.value # configProjectCS # configProjectTN
+            , pforgetPositive foldOutputValue #== collectedAda <> projectTokens <> rfoldToken
+            , projectInpDatF.totalCommitted #== foldOutDatumF.totalCommitted 
             , pvalueOf # mintedValue # rewardConfigF.tokenHolderCS # projectTokenHolderTN #== -1
             ]
     pure $
@@ -476,7 +530,7 @@ pmintRewardFoldPolicyW = phoistAcyclic $
         (popaque $ pconstant ())
         perror
 
-data PRewardsFoldState (s :: S) = PRewardsFoldState
+data PDistributionFoldState (s :: S) = PDistributionFoldState
   { next :: Term s PNodeKeyState
   , owedProjectTkns :: Term s PInteger
   , receivedCommitment :: Term s PInteger 
@@ -485,7 +539,7 @@ data PRewardsFoldState (s :: S) = PRewardsFoldState
   deriving stock (Generic)
   deriving anyclass (PlutusType, PEq)
 
-instance DerivePlutusType PRewardsFoldState where
+instance DerivePlutusType PDistributionFoldState where
   type DPTStrat _ = PlutusTypeScott
 
 prewardSuccessor :: 
@@ -494,16 +548,16 @@ prewardSuccessor ::
   Term s PTokenName -> 
   Term s PInteger ->
   Term s PInteger -> 
-  Term s PRewardsFoldState -> 
+  Term s PDistributionFoldState -> 
   Term s PTxOut -> 
   Term s PTxOut -> 
-  Term s PRewardsFoldState
+  Term s PDistributionFoldState
 prewardSuccessor nodeCS projectCS projectTN totalProjectTokens totalCommitted state inputNode outputNode = unTermCont $ do
   accNodeF <- pmatchC state
   nodeInputF <- pletFieldsC @'["address", "value", "datum"] inputNode
   inputValue <- pletC $ pforgetPositive nodeInputF.value
   (POutputDatum nodeInpDatum) <- pmatchC nodeInputF.datum
-  let nodeInpDat = punsafeCoerce @_ @_ @PDiscoverySetNode (pfield @"outputDatum" # nodeInpDatum)
+  let nodeInpDat = punsafeCoerce @_ @_ @PLiquiditySetNode (pfield @"outputDatum" # nodeInpDatum)
   nodeInDatF <- pletFieldsC @'["key", "next"] nodeInpDat
   
   nodeCommitment <- pletC $ plovelaceValueOf # inputValue - nodeAda
@@ -512,7 +566,7 @@ prewardSuccessor nodeCS projectCS projectTN totalProjectTokens totalCommitted st
   nodeOutputF <- pletFieldsC @'["address", "value", "datum"] outputNode
   nodeOutputValue <- pletC $ nodeOutputF.value 
   let owedProjectValue = Value.psingleton # projectCS # projectTN # owedProjectTokens 
-      owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) -- [("",[("", -100)])] 
+      owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) 
       nodeKey = toScott $ pfromData nodeInDatF.key
       successorChecks = 
         pand'List 
@@ -523,7 +577,7 @@ prewardSuccessor nodeCS projectCS projectTN totalProjectTokens totalCommitted st
           , pvalueOfOneScott # nodeCS # inputValue
           ]
       accState =
-        pcon @PRewardsFoldState
+        pcon @PDistributionFoldState
           accNodeF
             { next = toScott (pfromData nodeInDatF.next)
             , owedProjectTkns = accNodeF.owedProjectTkns + owedProjectTokens
@@ -538,10 +592,10 @@ pfoldCorrespondingUTxOs ::
   Term s PTokenName ->
   Term s PInteger ->
   Term s PInteger -> 
-  Term s PRewardsFoldState ->    
+  Term s PDistributionFoldState ->    
   Term s (PBuiltinList PTxOut) ->
   Term s (PBuiltinList PTxOut) ->
-  Term s PRewardsFoldState 
+  Term s PDistributionFoldState 
 pfoldCorrespondingUTxOs nodeCS projectCS projectTN totalProjectTokens totalCommitted acc la lb =  
   pfoldl2
     # plam
@@ -552,16 +606,16 @@ pfoldCorrespondingUTxOs nodeCS projectCS projectTN totalProjectTokens totalCommi
     # la
     # lb
 
-prewardFoldValidatorW :: Term s (PRewardFoldConfig :--> PValidator)
+prewardFoldValidatorW :: Term s (PDistributionFoldConfig :--> PValidator)
 prewardFoldValidatorW = phoistAcyclic $
   plam $ \rewardConfig datum redeemer ctx ->
-    let dat = punsafeCoerce @_ @_ @PRewardFoldDatum datum
-        red = punsafeCoerce @_ @_ @PRewardsFoldAct redeemer
+    let dat = punsafeCoerce @_ @_ @PDistributionFoldDatum datum
+        red = punsafeCoerce @_ @_ @PDistributionFoldAct redeemer
      in pmatch red $ \case
-          PRewardsFoldNode _ -> prewardFoldNode # rewardConfig # dat # ctx
-          PRewardsFoldNodes r -> pletFields @'["nodeIdxs", "nodeOutIdxs"] r $ \redF ->
+          PDistributionFoldNode _ -> prewardFoldNode # rewardConfig # dat # ctx
+          PDistributionFoldNodes r -> pletFields @'["nodeIdxs", "nodeOutIdxs"] r $ \redF ->
             prewardFoldNodes # rewardConfig # redF.nodeIdxs # redF.nodeOutIdxs # dat # ctx
-          PRewardsReclaim _ -> unTermCont $ do 
+          PDistributionReclaim _ -> unTermCont $ do 
             PPubKeyCredential ((pfield @"_0" #) -> ownerPkh) <- pmatchC (pfield @"credential" # (pfield @"owner" # dat))
             infoF <- pletFieldsC @'["signatories"] (pfield @"txInfo" # ctx)
             let signedByOwner = (ptxSignedByPkh # ownerPkh # infoF.signatories)
@@ -578,10 +632,10 @@ prewardFoldValidatorW = phoistAcyclic $
 
 prewardFoldNodes :: 
   Term s 
-    (PRewardFoldConfig 
+    (PDistributionFoldConfig 
       :--> PBuiltinList (PAsData PInteger) 
       :--> PBuiltinList (PAsData PInteger) 
-      :--> PRewardFoldDatum 
+      :--> PDistributionFoldDatum 
       :--> PScriptContext 
       :--> POpaque)    
 prewardFoldNodes = phoistAcyclic $ plam $ \rewardConfig inputIdxs outputIdxs dat ctx -> unTermCont $ do 
@@ -608,13 +662,13 @@ prewardFoldNodes = phoistAcyclic $ plam $ \rewardConfig inputIdxs outputIdxs dat
   ownOutputF <- pletFieldsC @'["value", "datum"] ownOutput
   (POutputDatum foldOutputDatum) <- pmatchC ownOutputF.datum
 
-  let foldOutDatum = pfromPDatum @PRewardFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
+  let foldOutDatum = pfromPDatum @PDistributionFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
   newDatumF <- pletFieldsC @'["currNode", "totalProjectTokens", "totalCommitted", "owner"] foldOutDatum
   newFoldNodeF <- pletFieldsC @'["key", "next"] newDatumF.currNode 
 
   let rewardsFoldState =
         pcon
-          ( PRewardsFoldState
+          ( PDistributionFoldState
               (toScott $ pfromData currFoldNodeF.next)
               0
               0
@@ -642,7 +696,7 @@ prewardFoldNodes = phoistAcyclic $ plam $ \rewardConfig inputIdxs outputIdxs dat
   pure $
       pif foldChecks (popaque (pconstant ())) perror
 
-prewardFoldNode :: Term s (PRewardFoldConfig :--> PRewardFoldDatum :--> PScriptContext :--> POpaque)
+prewardFoldNode :: Term s (PDistributionFoldConfig :--> PDistributionFoldDatum :--> PScriptContext :--> POpaque)
 prewardFoldNode = phoistAcyclic $
   plam $ \rewardConfig dat ctx -> unTermCont $ do
     rewardConfigF <- pletFieldsC @'["nodeCS", "projectTN", "projectCS", "projectAddr"] rewardConfig
@@ -662,7 +716,7 @@ prewardFoldNode = phoistAcyclic $
     ownOutputF <- pletFieldsC @'["address", "value", "datum"] ownOutput
     (POutputDatum foldOutputDatum) <- pmatchC ownOutputF.datum
 
-    let foldOutDatum = pfromPDatum @PRewardFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
+    let foldOutDatum = pfromPDatum @PDistributionFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
     foldOutDatumF <- pletFieldsC @'["currNode", "totalProjectTokens", "totalCommitted", "owner"] foldOutDatum
 
     oldTotalCommitted <- pletC datF.totalCommitted
@@ -679,7 +733,7 @@ prewardFoldNode = phoistAcyclic $
     owedProjectTkns <- pletC $ pdiv # (nodeCommitment * datF.totalProjectTokens) # datF.totalCommitted
     -- doesn't work with no decimal tokens
     -- nodeOutputValue = nodeOutputValue + rewardFoldProjectTk - nodeInputAda
-    let nodeInpDat = pfromPDatum @PDiscoverySetNode # (pfield @"outputDatum" # nodeInpDatum)
+    let nodeInpDat = pfromPDatum @PLiquiditySetNode # (pfield @"outputDatum" # nodeInpDatum)
     nodeInpDatF <- pletFieldsC @'["key", "next"] nodeInpDat
 
     let nodeOutput = ptryOutputToAddress # txOuts # nodeInputF.address

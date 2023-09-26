@@ -66,12 +66,12 @@ import PriceDiscoveryEvent.Utils (
   ptryOwnInput,
   ptryOwnOutput,
   pvalueOfOne,
-  (#>), 
-  ptxSignedByPkh, 
-  pfoldl2, 
-  pvalueOfOneScott, 
-  pcountScriptInputs, 
-  pfindCurrencySymbolsByTokenName,
+  (#>),
+  ptxSignedByPkh,
+  pfoldl2,
+  pvalueOfOneScott,
+  pcountScriptInputs,
+  pfindCurrencySymbolsByTokenName, pcountOfUniqueTokens,
  )
 import Types.Classes
 import Types.Constants (commitFoldTN, minAda, nodeAda, poriginNodeTN, rewardFoldTN, projectTokenHolderTN, foldingFee)
@@ -246,8 +246,7 @@ pfoldValidatorW = phoistAcyclic $
             pure $ 
               pif (ptxSignedByPkh # ownerPkh # infoF.signatories #&& pfromData commitMinted #== -1)
                   (popaque $ pconstant ())
-                  perror 
-            
+                  perror  
 
 pisSuccessor :: Term s (PCurrencySymbol :--> PCommitFoldState :--> PTxOut :--> PCommitFoldState)
 pisSuccessor = plam $ \nodeCS accNode node -> unTermCont $ do
@@ -467,6 +466,7 @@ pmintRewardFoldPolicyW = phoistAcyclic $
             , totalProjectTkns #== pvalueOf # foldOutputF.value # rewardConfigF.projectCS # rewardConfigF.projectTN
             , totalProjectTkns #== pvalueOf # (pfield @"value" # projectInput) # rewardConfigF.projectCS # rewardConfigF.projectTN
             , pvalueOf # foldOutputF.value # pfromData ownPolicyId # rewardFoldTN #== 1
+            , pcountOfUniqueTokens # foldOutputF.value #== 3
             , pmatch
                 commitFoldNodeF.next
                 ( \case

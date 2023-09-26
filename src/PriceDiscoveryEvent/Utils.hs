@@ -101,6 +101,28 @@ pfoldl2 =
         (pif (pnull # lb) acc perror)
         la
 
+pelemAtWithRest' :: PListLike list => PElemConstraint list a => Term s (PInteger :--> list a :--> PPair a (list a))
+pelemAtWithRest' = phoistAcyclic $
+  pfix #$ plam $ \self n xs ->
+    pif
+      (n #== 0)
+      (pcon $ PPair (phead # xs) (ptail # xs))
+      (self # (n - 1) #$ ptail # xs)
+
+pmapIdxs ::
+  (PListLike listB, PElemConstraint listB b) =>
+  Term s (PBuiltinList (PAsData PInteger) :--> listB b :--> listB b)
+pmapIdxs =
+  phoistAcyclic $
+    pfix #$ plam $ \self la lb ->
+      pelimList
+        ( \a as -> P.do
+            PPair foundEle xs <- pmatch $ pelemAtWithRest' # pfromData a # lb
+            (pcons # foundEle # (self # as # xs))
+        )
+        pnil
+        la
+
 {- | Finds the associated Currency symbols that contain the given token
   name.
 -}
@@ -206,6 +228,14 @@ pelemAt' = phoistAcyclic $
       (n #== 0)
       (phead # xs)
       (self # (n - 1) #$ ptail # xs)
+
+pelemAtFlipped' :: PIsListLike l a => Term s (l a :--> PInteger :--> a)
+pelemAtFlipped' = phoistAcyclic $
+  pfix #$ plam $ \self xs n ->
+    pif
+      (n #== 0)
+      (phead # xs)
+      (self # (ptail # xs) # (n - 1))
 
 pmapMaybe ::
   forall (list :: PType -> PType) (a :: PType) (b :: PType).

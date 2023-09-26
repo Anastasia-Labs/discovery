@@ -176,8 +176,10 @@ library
     PriceDiscoveryEvent.Mint.Helpers
     PriceDiscoveryEvent.Mint.Standard
     PriceDiscoveryEvent.MultiFold
+    PriceDiscoveryEvent.MultiFoldLiquidity
     PriceDiscoveryEvent.Validator
     PriceDiscoveryEvent.ProjectTokenHolder
+    PriceDiscoveryEvent.LiquidityTokenHolder
     AlwaysFails 
   -- Compile
 

@@ -365,7 +365,7 @@ pClaim cfg common outs sigs = plam $ \pkToRemove -> P.do
 
   nodeToRemoveTN <- plet (pnodeKeyTN # keyToRemove)
 
-  passert "Incorrect mint for Remove" $
+  passert "Incorrect node UTxO for Remove" $
     pvalueOf # removedValue # common.ownCS # nodeToRemoveTN #== 1
 
   passert "Incorrect mint for Remove" $

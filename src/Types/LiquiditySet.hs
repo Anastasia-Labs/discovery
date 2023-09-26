@@ -4,7 +4,8 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Types.LiquiditySet where 
+module Types.LiquiditySet where
+
 import Plutarch.Api.V2 (
   PAddress,
   PScriptHash (..),
@@ -221,6 +222,25 @@ deriving via
   instance
     PConstantDecl LiquidityNodeAction
 
+data PLiquidityHolderDatum (s :: S)
+  = PLiquidityHolderDatum
+      ( Term
+          s
+          ( PDataRecord
+              '[ "currNode" ':= PLiquiditySetNode
+               , "totalCommitted" ':= PInteger 
+               ]
+          )
+      )
+  deriving stock (Generic)
+  deriving anyclass (PlutusType, PIsData, PDataFields)
+
+instance DerivePlutusType PLiquidityHolderDatum where
+  type DPTStrat _ = PlutusTypeData
+
+deriving anyclass instance
+  PTryFrom PData PLiquidityHolderDatum
+  
 -----------------------------------------------
 -- Helpers:
 
