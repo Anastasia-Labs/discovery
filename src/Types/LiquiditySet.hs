@@ -80,8 +80,8 @@ data PLBELockConfig (s :: S)
 
 instance DerivePlutusType PLBELockConfig where type DPTStrat _ = PlutusTypeData
 
-data PDiscoveryConfig (s :: S)
-  = PDiscoveryConfig
+data PLiquidityConfig (s :: S)
+  = PLiquidityConfig
       ( Term
           s
           ( PDataRecord
@@ -94,7 +94,7 @@ data PDiscoveryConfig (s :: S)
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PDataFields, PEq)
 
-instance DerivePlutusType PDiscoveryConfig where type DPTStrat _ = PlutusTypeData
+instance DerivePlutusType PLiquidityConfig where type DPTStrat _ = PlutusTypeData
 
 data LiquiditySetNode = MkLiquiditySetNode
   { key :: NodeKey
@@ -182,8 +182,18 @@ data PSeparatorConfig (s :: S)
 
 instance DerivePlutusType PSeparatorConfig where type DPTStrat _ = PlutusTypeData
 
-mkNode :: Term s (PNodeKey :--> PNodeKey :--> PInteger :--> PLiquiditySetNode)
+mkNode :: Term s (PNodeKey :--> PNodeKey :--> PLiquiditySetNode)
 mkNode = phoistAcyclic $
+  plam $ \key next ->
+    pcon $
+      PLiquiditySetNode $
+        pdcons @"key" # pdata key
+          #$ pdcons @"next" # pdata next
+          #$ pdcons @"commitment" # pconstantData 0 
+          #$ pdnil
+
+mkNodeWithCommit :: Term s (PNodeKey :--> PNodeKey :--> PInteger :--> PLiquiditySetNode)
+mkNodeWithCommit = phoistAcyclic $
   plam $ \key next commitment ->
     pcon $
       PLiquiditySetNode $
@@ -244,12 +254,12 @@ deriving anyclass instance
 -----------------------------------------------
 -- Helpers:
 
-mkBSNode :: ClosedTerm (PByteString :--> PByteString :--> PInteger :--> PAsData PLiquiditySetNode)
+mkBSNode :: ClosedTerm (PByteString :--> PByteString :--> PAsData PLiquiditySetNode)
 mkBSNode = phoistAcyclic $
-  plam $ \key' next' committed ->
+  plam $ \key' next' ->
     let key = pcon $ PKey $ pdcons @"_0" # pdata key' #$ pdnil
         next = pcon $ PKey $ pdcons @"_0" # pdata next' #$ pdnil
-     in pdata $ mkNode # key # next # committed
+     in pdata $ mkNode # key # next 
 
 -- | Checks that the node is the empty head node and the datum is empty
 isEmptySet :: ClosedTerm (PAsData PLiquiditySetNode :--> PBool)
@@ -291,12 +301,12 @@ isNothing = phoistAcyclic $
   Seen as if the node between them was removed.
   @node.key@ remains the same, @node.next@ changes to @next@.
 -}
-asPredecessorOf :: ClosedTerm (PAsData PLiquiditySetNode :--> PByteString :--> PInteger :--> PLiquiditySetNode)
+asPredecessorOf :: ClosedTerm (PAsData PLiquiditySetNode :--> PByteString :--> PLiquiditySetNode)
 asPredecessorOf = phoistAcyclic $
-  plam $ \node next committed ->
+  plam $ \node next ->
     let nodeKey = pfromData $ pfield @"key" # node
         nextPK = pcon $ PKey $ pdcons @"_0" # pdata next #$ pdnil
-     in mkNode # nodeKey # nextPK # committed
+     in mkNode # nodeKey # nextPK
 
 {- | @
     key `asSuccessorOf` node
@@ -304,12 +314,12 @@ asPredecessorOf = phoistAcyclic $
   Seen as if the node between them was removed.
   @node.next@ remains the same, @node.key@ changes to @key@.
 -}
-asSuccessorOf :: ClosedTerm (PByteString :--> PAsData PLiquiditySetNode :--> PInteger :--> PLiquiditySetNode)
+asSuccessorOf :: ClosedTerm (PByteString :--> PAsData PLiquiditySetNode :--> PLiquiditySetNode)
 asSuccessorOf = phoistAcyclic $
-  plam $ \key node committed ->
+  plam $ \key node ->
     let nodeNext = pfromData $ pfield @"next" # node
         keyPK = pcon $ PKey $ pdcons @"_0" # pdata key #$ pdnil
-     in mkNode # keyPK # nodeNext # committed
+     in mkNode # keyPK # nodeNext
 
 -- | Extracts the next node key
 getNextPK :: ClosedTerm (PAsData PLiquiditySetNode :--> PMaybe PPubKeyHash)
@@ -342,3 +352,15 @@ validNode = phoistAcyclic $
         PEmpty _ -> pcon PTrue
         PKey ((pfield @"_0" #) -> next) ->
           pfromData key #< pfromData next -- nodes ordered incrementally
+
+coversLiquidityKey :: ClosedTerm (PAsData PLiquiditySetNode :--> PByteString :--> PBool)
+coversLiquidityKey = phoistAcyclic $
+  plam $ \datum keyToCover -> P.do
+    nodeDatum <- pletFields @'["key", "next"] datum
+    let moreThanKey = pmatch (nodeDatum.key) $ \case
+          PEmpty _ -> pcon PTrue
+          PKey (pfromData . (pfield @"_0" #) -> key) -> key #< keyToCover
+        lessThanNext = pmatch (nodeDatum.next) $ \case
+          PEmpty _ -> pcon PTrue
+          PKey (pfromData . (pfield @"_0" #) -> next) -> keyToCover #< next
+    moreThanKey #&& lessThanNext

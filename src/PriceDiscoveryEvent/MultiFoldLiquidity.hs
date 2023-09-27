@@ -564,14 +564,13 @@ prewardSuccessor nodeCS projectCS projectTN totalProjectTokens totalCommitted st
   owedProjectTokens <- pletC $ pdiv # (nodeCommitment * totalProjectTokens) # totalCommitted
 
   nodeOutputF <- pletFieldsC @'["address", "value", "datum"] outputNode
-  nodeOutputValue <- pletC $ nodeOutputF.value 
   let owedProjectValue = Value.psingleton # projectCS # projectTN # owedProjectTokens 
-      owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) 
+      owedAdaValue = Value.psingleton # padaSymbol # padaToken # (-foldingFee) 
       nodeKey = toScott $ pfromData nodeInDatF.key
       successorChecks = 
         pand'List 
           [ (accNodeF.next #== nodeKey)
-          , (inputValue <> owedProjectValue <> owedAdaValue) #== pforgetPositive nodeOutputValue
+          , (inputValue <> owedProjectValue <> owedAdaValue) #== pforgetPositive nodeOutputF.value
           , nodeOutputF.address #== nodeInputF.address 
           , nodeOutputF.datum #== nodeInputF.datum 
           , pvalueOfOneScott # nodeCS # inputValue

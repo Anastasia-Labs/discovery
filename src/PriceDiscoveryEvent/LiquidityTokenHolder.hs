@@ -12,7 +12,7 @@ module PriceDiscoveryEvent.LiquidityTokenHolder where
 import GHC.Stack (HasCallStack)
 import Plutarch (Config (Config), TracingMode (DoTracing))
 import Plutarch.Api.V1 (PCredential (..))
-import Plutarch.Api.V1.Value (padaToken, padaSymbol, plovelaceValueOf, pnoAdaValue, pnormalize, pvalueOf)
+import Plutarch.Api.V1.Value (padaToken, padaSymbol, plovelaceValueOf, pnoAdaValue, pnormalize, pvalueOf, pforgetPositive)
 import Plutarch.Api.V1.Value qualified as Value 
 import Plutarch.Api.V2 (
   AmountGuarantees (Positive),
@@ -55,7 +55,7 @@ import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V2
 import PlutusTx qualified
-import Types.Constants (projectTokenHolderTN, rewardFoldTN)
+import Types.Constants (projectTokenHolderTN, rewardFoldTN, commitFoldTN)
 import PriceDiscoveryEvent.Utils (
   pand'List,
   pcond,
@@ -64,9 +64,10 @@ import PriceDiscoveryEvent.Utils (
   pheadSingleton,
   ptryLookupValue,
   pfindCurrencySymbolsByTokenName,
-  ptryOwnInput
+  ptryOwnInput, pmustFind, ptryOwnOutput
  )
 import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum )
+import PriceDiscoveryEvent.MultiFoldLiquidity (PLiquidityFoldDatum)
 
 data PLiquidityHolderMintAct (s :: S)
   = PMintHolder (Term s (PDataRecord '[]))
@@ -131,19 +132,19 @@ data PLiquidityHolderAct (s :: S)
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData)
 
-instance DerivePlutusType PLiquidityHolderMintAct where
+instance DerivePlutusType PLiquidityHolderAct where
   type DPTStrat _ = PlutusTypeData
 
 
-pliquidityTokenHolder :: Term s (PAsData PCurrencySymbol :--> PAsData PCurrencySymbol :--> PValidator)
-pliquidityTokenHolder = phoistAcyclic $ plam $ \rewardsCS commitCS _dat redeemer ctx -> unTermCont $ do 
+pliquidityTokenHolder :: Term s (PAsData PCurrencySymbol :--> PAsData PCurrencySymbol :--> PData :--> PData :--> PScriptContext :--> POpaque)
+pliquidityTokenHolder = phoistAcyclic $ plam $ \rewardsCS commitCS _dat redeemer ctx ->
   let red = punsafeCoerce @_ @_ @PLiquidityHolderAct redeemer 
    in pmatch red $ \case 
           PAddCollected _ -> popaque $ paddCollected # commitCS # ctx 
           PCreatePool _ -> perror -- TODO
           PBeginRewards _ -> pbeginRewards # rewardsCS # ctx
 
-pbeginRewards :: Term s (PAsData PCurrencySymbol :--> PValidator)
+pbeginRewards :: Term s (PAsData PCurrencySymbol :--> PScriptContext :--> POpaque)
 pbeginRewards = phoistAcyclic $ plam $ \rewardsCS ctx -> unTermCont $ do 
   ctxF <- pletFieldsC @'["txInfo", "purpose"] ctx 
   infoF <- pletFieldsC @'["inputs", "mint"] ctxF.txInfo
@@ -165,39 +166,40 @@ pbeginRewards = phoistAcyclic $ plam $ \rewardsCS ctx -> unTermCont $ do
   pure $
     pif ( pfromData rewardTkMinted #== 1 #&& pfromData thkMinted #== -1) (popaque $ pconstant ()) perror 
 
-paddCollected :: Term s (PAsData PCurrencySymbol :--> PValidator)
+paddCollected :: Term s (PAsData PCurrencySymbol :--> PScriptContext :--> POpaque)
 paddCollected = phoistAcyclic $ plam $ \commitCS ctx -> unTermCont $ do 
   ctxF <- pletFieldsC @'["txInfo", "purpose"] ctx 
   infoF <- pletFieldsC @'["inputs", "outputs", "mint"] ctxF.txInfo
   mintedValue <- pletC (pnormalize # infoF.mint) 
   PSpending ((pfield @"_0" #) -> ownRef) <- pmatchC ctxF.purpose
-  let ownInput = ptryOwnInput # infoF.inputs # ownRef
+  txInputs <- pletC infoF.inputs
+  let ownInput = ptryOwnInput # txInputs # ownRef
   ownInputF <- pletFieldsC @'["value", "address", "datum"] ownInput
   PScriptCredential ((pfield @"_0" #) -> ownValHash) <- pmatchC (pfield @"credential" # ownInputF.address)
 
   let commitInp = 
         pfield @"resolved" #
           ( pmustFind @PBuiltinList
-              # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # commitCS # commitFoldTN #== 1)
+              # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # pfromData commitCS # commitFoldTN #== 1)
               # txInputs 
           )
-  commitInputF <- pletFields @'["value", "datum"] commitInp 
+  commitInputF <- pletFieldsC @'["value", "datum"] commitInp 
   let commitDatum = punsafeCoerce @_ @_ @PLiquidityFoldDatum $ (ptryFromInlineDatum # commitInputF.datum) 
   commitDatF <- pletFieldsC @'["currNode", "committed"] commitDatum
   
-  let ownOutput = ptryOwnOutput # info.outputs # ownValHash
-      ownOutputF <- pletFieldsC @'["value", "datum"] ownOutput  
+  let ownOutput = ptryOwnOutput # infoF.outputs # ownValHash
+  ownOutputF <- pletFieldsC @'["value", "datum"] ownOutput  
   
   (POutputDatum ownOutDatum) <- pmatchC ownOutputF.datum
-  ownOutDatF <- pletFields @'["currNode", "totalCommitted"] (pfromPDatum @PLiquidityHolderDatum # (pfield @"outputDatum" # ownOutDatum))
+  ownOutDatF <- pletFieldsC @'["currNode", "totalCommitted"] (pfromPDatum @PLiquidityHolderDatum # (pfield @"outputDatum" # ownOutDatum))
  
   let commitTkPair = (pheadSingleton #$ ptryLookupValue # commitCS # mintedValue)
-      commitTkBurned = (pfromData psndBuiltin # commitTkPair) #== -1
+      commitTkBurned = (pfromData $ psndBuiltin # commitTkPair) #== -1
       collectedAda = Value.psingleton # padaSymbol # padaToken # commitDatF.committed
       addCollectedChecks = 
           pand'List
             [ commitTkBurned 
-            , pforgetPositive ownOutputF.value #== (ownInputF.value <> collectedAda)
+            , pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
             , ownOutDatF.currNode #== commitDatF.currNode 
             , ownOutDatF.totalCommitted #== commitDatF.committed 
             ] 

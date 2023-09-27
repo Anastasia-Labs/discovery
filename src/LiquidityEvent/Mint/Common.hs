@@ -1,4 +1,4 @@
-module PriceDiscoveryEvent.Mint.Common (
+module LiquidityEvent.Mint.Common (
   PPriceDiscoveryCommon (..),
   makeCommon,
   pInit,
@@ -60,17 +60,9 @@ import PriceDiscoveryEvent.Utils (
  )
 import Types.Constants (minAda, minCommitment, pcorrNodeTN, pnodeKeyTN, poriginNodeTN, pparseNodeKey)
 import Types.DiscoverySet (
-  PDiscoveryConfig,
-  PDiscoverySetNode,
   PNodeKey (..),
-  asPredecessorOf,
-  asSuccessorOf,
-  isEmptySet,
-  isNothing,
-  isFirstNode,
-  isLastNode,
-  validNode,
  )
+import Types.LiquiditySet
 
 pdivideCeil :: Term s (PInteger :--> PInteger :--> PInteger)
 pdivideCeil = phoistAcyclic $ plam $ \a b -> (pdiv # a # b) + pif ((pmod # a # b) #> 0) 1 0
@@ -79,7 +71,7 @@ nodeInputUtxoDatum ::
   ClosedTerm
     ( PAsData PCurrencySymbol
         :--> PTxOut
-        :--> PMaybe (PAsData PDiscoverySetNode)
+        :--> PMaybe (PAsData PLiquiditySetNode)
     )
 nodeInputUtxoDatum = phoistAcyclic $
   plam $ \nodeCS out -> P.do
@@ -92,7 +84,7 @@ nodeInputUtxoDatum = phoistAcyclic $
 nodeInputUtxoDatumUnsafe ::
   ClosedTerm
     ( PTxOut
-        :--> PPair (PValue 'Sorted 'Positive) (PAsData PDiscoverySetNode)
+        :--> PPair (PValue 'Sorted 'Positive) (PAsData PLiquiditySetNode)
     )
 nodeInputUtxoDatumUnsafe = phoistAcyclic $
   plam $ \out -> pletFields @'["value", "datum"] out $ \outF ->
@@ -104,7 +96,7 @@ parseNodeOutputUtxo ::
   ClosedTerm
     ( PAsData PCurrencySymbol
         :--> PTxOut
-        :--> PPair (PValue 'Sorted 'Positive) (PAsData PDiscoverySetNode)
+        :--> PPair (PValue 'Sorted 'Positive) (PAsData PLiquiditySetNode)
     )
 parseNodeOutputUtxo cfg = phoistAcyclic $
   plam $ \nodeCS out -> P.do
@@ -241,11 +233,11 @@ pInsert ::
   forall (s :: S).
   Config ->
   PPriceDiscoveryCommon s ->
-  Term s (PAsData PPubKeyHash :--> PAsData PDiscoverySetNode :--> PUnit)
+  Term s (PAsData PPubKeyHash :--> PAsData PLiquiditySetNode :--> PUnit)
 pInsert cfg common = plam $ \pkToInsert node -> P.do
   keyToInsert <- plet . pto . pfromData $ pkToInsert
   passert "Node should cover inserting key" $
-    coversKey # node # keyToInsert
+    coversLiquidityKey # node # keyToInsert
   -- Input Checks
   PPair coveringNode otherNodes <-
     pmatch $
@@ -279,14 +271,14 @@ pRemove ::
   Config ->
   PPriceDiscoveryCommon s ->
   Term s (PInterval PPOSIXTime) ->
-  Term s PDiscoveryConfig ->
+  Term s PLiquidityConfig ->
   Term s (PBuiltinList PTxOut) ->
   Term s (PBuiltinList (PAsData PPubKeyHash)) ->
-  Term s (PAsData PPubKeyHash :--> PAsData PDiscoverySetNode :--> PUnit)
+  Term s (PAsData PPubKeyHash :--> PAsData PLiquiditySetNode :--> PUnit)
 pRemove cfg common vrange discConfig outs sigs = plam $ \pkToRemove node -> P.do
   keyToRemove <- plet . pto . pfromData $ pkToRemove
   passert "Node does not cover key to remove" $
-    coversKey # node # keyToRemove
+    coversLiquidityKey # node # keyToRemove
   -- Input Checks
   let prevNodeInDatum = pdata $ asPredecessorOf # node # keyToRemove
       nodeInDatum = pdata $ asSuccessorOf # keyToRemove # node
@@ -384,9 +376,9 @@ data PPriceDiscoveryCommon (s :: S) = MkCommon
   -- ^ state token (own) CS
   , mint :: Term s (PValue 'Sorted 'NonZero)
   -- ^ value minted in current Tx
-  , nodeInputs :: Term s (PList (PPair (PValue 'Sorted 'Positive) (PAsData PDiscoverySetNode)))
+  , nodeInputs :: Term s (PList (PPair (PValue 'Sorted 'Positive) (PAsData PLiquiditySetNode)))
   -- ^ current Tx outputs to AuctionValidator
-  , nodeOutputs :: Term s (PList (PPair (PValue 'Sorted 'Positive) (PAsData PDiscoverySetNode)))
+  , nodeOutputs :: Term s (PList (PPair (PValue 'Sorted 'Positive) (PAsData PLiquiditySetNode)))
   -- ^ current Tx inputs
   }
   deriving stock (Generic)
