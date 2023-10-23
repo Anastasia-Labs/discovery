@@ -41,6 +41,9 @@ import PriceDiscoveryEvent.Mint.Standard (mkDiscoveryNodeMPW)
 import PriceDiscoveryEvent.MultiFold (pfoldValidatorW, pmintFoldPolicyW, pmintRewardFoldPolicyW, prewardFoldValidatorW)
 import PriceDiscoveryEvent.Validator (pDiscoverySetValidator, pDiscoverGlobalLogicW)
 import PriceDiscoveryEvent.ProjectTokenHolder (pprojectTokenHolder, pmintProjectTokenHolder)
+import PriceDiscoveryEvent.MultiFoldLiquidity qualified as LiquidityFold 
+import LiquidityEvent.Mint.Standard (mkLiquidityNodeMPW)
+import LiquidityEvent.Validator (pLiquiditySetValidator, pLiquidityGlobalLogicW)
 import AlwaysFails (pAlwaysFails, pAuthMint)
 import System.IO
 
@@ -82,5 +85,12 @@ main = do
   writePlutusScript "Auth Mint" "./compiled/authMint.json" pAuthMint
   writePlutusScript "Token Holder Validator" "./compiled/tokenHolderValidator.json" pprojectTokenHolder
   writePlutusScript "Token Holder Policy" "./compiled/tokenHolderPolicy.json" pmintProjectTokenHolder
+  writePlutusScript "Liquidity Stake Validator" "./compiledLiquidity/discoveryStakeValidator.json" pLiquidityGlobalLogicW
+  writePlutusScript "Discovery Validator" "./compiledLiquidity/discoveryValidator.json" $ pLiquiditySetValidator def "FSN"
+  writePlutusScript "Discovery Mint" "./compiledLiquidity/discoveryMinting.json" $ mkLiquidityNodeMPW def
+  writePlutusScript "Commit Fold Validator" "./compiledLiquidity/foldValidator.json" LiquidityFold.pfoldValidatorW
+  writePlutusScript "Commit Fold Mint" "./compiledLiquidity/foldMint.json" LiquidityFold.pmintFoldPolicyW
+  writePlutusScript "Reward Fold Validator" "./compiledLiquidity/rewardFoldValidator.json" LiquidityFold.prewardFoldValidatorW
+  writePlutusScript "Reward Fold Mint" "./compiledLiquidity/rewardFoldMint.json" LiquidityFold.pmintRewardFoldPolicyW
 -- writePlutusScript "multisigStateMint" "./compiled/multisigStateMint.plutus" DAOValidator.pvalidateDaoStateMintW
 -- writePlutusScript "smallValidator" "./compiled/smallValidator.plutus" SmallValidator.pvalidateSmallChecksW

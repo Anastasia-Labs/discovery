@@ -71,6 +71,7 @@ pLiquiditySetValidator cfg prefix = plam $ \discConfig dat redmn ctx' ->
         let ownInput = P.do
               PSpending ((pfield @"_0" #) -> ref) <- pmatch ctx.purpose
               ptryOwnInput # txInputs # ref
+              
         ownInputF <- pletFields @'["value", "address"] ownInput
 
         let ownInputValue = pfromData ownInputF.value
@@ -80,7 +81,7 @@ pLiquiditySetValidator cfg prefix = plam $ \discConfig dat redmn ctx' ->
 
         case otherRedeemers of 
           PLLinkedListAct _ -> P.do
-            -- TODO: Currently launchpad token cannot start with FSN
+            -- TODO: Current launchpad token cannot start with FSN
             passert
               "Must mint/burn for any FinSet input"
               (pcontainsCurrencySymbols # pfromData info.mint # potentialNodeCSs)
@@ -99,3 +100,4 @@ pLiquiditySetValidator cfg prefix = plam $ \discConfig dat redmn ctx' ->
             passert "deadline passed" ((pafter # (pfromData configF.discoveryDeadline - 86_400) # info.validRange))
             (popaque $ pconstant ()) 
         
+-- TODO PlaceHolder # This contribution holds only the minimum amount of Ada + the FoldingFee, it cannot be updated. It cannot be removed until the reward fold has completed.

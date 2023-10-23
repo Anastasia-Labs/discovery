@@ -356,11 +356,11 @@ validNode = phoistAcyclic $
 coversLiquidityKey :: ClosedTerm (PAsData PLiquiditySetNode :--> PByteString :--> PBool)
 coversLiquidityKey = phoistAcyclic $
   plam $ \datum keyToCover -> P.do
-    nodeDatum <- pletFields @'["key", "next"] datum
+    nodeDatum <- pletFields @'["key", "next", "commitment"] datum
     let moreThanKey = pmatch (nodeDatum.key) $ \case
           PEmpty _ -> pcon PTrue
           PKey (pfromData . (pfield @"_0" #) -> key) -> key #< keyToCover
         lessThanNext = pmatch (nodeDatum.next) $ \case
           PEmpty _ -> pcon PTrue
           PKey (pfromData . (pfield @"_0" #) -> next) -> keyToCover #< next
-    moreThanKey #&& lessThanNext
+    moreThanKey #&& lessThanNext #&& (pfromData nodeDatum.commitment #== 0)
