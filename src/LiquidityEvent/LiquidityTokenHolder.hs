@@ -98,7 +98,7 @@ pburnTokenHolder = phoistAcyclic $
     ownPolicyId <- pletC $ pfield @"_0" # policy
 
     info <- pletFieldsC @'["mint"] contextFields.txInfo
-    tkPairs <- pletC $ ptryLookupValue # ownPolicyId # (pnormalize # info.mint)
+    tkPairs <- pletC $ ptryLookupValue # ownPolicyId # info.mint
     tkPair <- pletC (pheadSingleton # tkPairs)
     let numMinted = psndBuiltin # tkPair 
     pure $

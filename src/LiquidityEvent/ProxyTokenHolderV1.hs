@@ -73,8 +73,8 @@ pmustFindDatum =
         datums
 
 
-pliquidityTokenHolder :: Term s (PAsData PCurrencySymbol :--> PData :--> PData :--> PScriptContext :--> POpaque)
-pliquidityTokenHolder = phoistAcyclic $ plam $ \poolTokenCS datum redeemer ctx ->
+pproxyTokenHolderV1 :: Term s (PAsData PCurrencySymbol :--> PData :--> PData :--> PScriptContext :--> POpaque)
+pproxyTokenHolderV1 = phoistAcyclic $ plam $ \poolTokenCS datum redeemer ctx ->
   let red = punsafeCoerce @_ @_ @PProxyTokenHolderAct redeemer 
       dat = punsafeCoerce @_ @_ @PAddress datum 
    in pmatch red $ \case 
