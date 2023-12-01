@@ -7,6 +7,8 @@ import Data.Text qualified as T
 import Plutarch.Api.V1 (AmountGuarantees (Positive), KeyGuarantees (Sorted), PCredential (PPubKeyCredential, PScriptCredential))
 import Plutarch.Api.V1.Scripts (PScriptHash)
 import Plutarch.Api.V1.Value (padaSymbol, pvalueOf, pnormalize)
+import Plutarch.Api.V1.AssocMap qualified as AssocMap
+
 import Plutarch.Api.V2 (
   PAddress,
   PCurrencySymbol,
@@ -354,7 +356,7 @@ psymbolValueOfHelper =
           # 0
           # m
 
--- | @since 1.0.0
+-- | Sum of total positive amounts in Value for a given policyId
 ppositiveSymbolValueOf ::
   forall
     (keys :: KeyGuarantees)
@@ -363,7 +365,7 @@ ppositiveSymbolValueOf ::
   Term s (PCurrencySymbol :--> (PValue keys amounts :--> PInteger))
 ppositiveSymbolValueOf = phoistAcyclic $ psymbolValueOfHelper #$ plam (0 #<)
 
--- | @since 1.0.0
+-- | Sum of total negative amounts in Value for a given policyId
 pnegativeSymbolValueOf ::
   forall
     (keys :: KeyGuarantees)
@@ -484,6 +486,24 @@ ptryLookupValue = phoistAcyclic $
         )
         (const perror)
         # pto val'
+
+{- | Removes a currency symbol from a value 
+-}
+pfilterCSFromValue ::
+  forall
+    (anyOrder :: KeyGuarantees)
+    (anyAmount :: AmountGuarantees).
+  ClosedTerm
+    ( PValue anyOrder anyAmount
+        :--> PAsData PCurrencySymbol
+        :--> PValue anyOrder anyAmount
+    )
+pfilterCSFromValue = phoistAcyclic $
+  plam $ \value policyId ->
+      let mapVal = pto (pto value)
+          go = pfix #$ plam $ \self ys ->
+                pelimList (\x xs -> pif (pfstBuiltin # x #== policyId) xs (pcons # x # (self # xs))) pnil ys
+       in pcon (PValue $ pcon $ PMap $ go # mapVal)
 
 psingletonOfCS ::
   forall

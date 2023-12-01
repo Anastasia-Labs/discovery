@@ -44,6 +44,7 @@ import PriceDiscoveryEvent.ProjectTokenHolder (pprojectTokenHolder, pmintProject
 import PriceDiscoveryEvent.MultiFoldLiquidity qualified as LiquidityFold 
 import LiquidityEvent.Mint.Standard (mkLiquidityNodeMPW)
 import LiquidityEvent.Validator (pLiquiditySetValidator, pLiquidityGlobalLogicW)
+import LiquidityEvent.ProxyTokenHolderV1 qualified as ProxyTokenHolderV1
 import AlwaysFails (pAlwaysFails, pAuthMint)
 import System.IO
 
@@ -85,12 +86,12 @@ main = do
   writePlutusScript "Auth Mint" "./compiled/authMint.json" pAuthMint
   writePlutusScript "Token Holder Validator" "./compiled/tokenHolderValidator.json" pprojectTokenHolder
   writePlutusScript "Token Holder Policy" "./compiled/tokenHolderPolicy.json" pmintProjectTokenHolder
-  writePlutusScript "Liquidity Stake Validator" "./compiledLiquidity/discoveryStakeValidator.json" pLiquidityGlobalLogicW
-  writePlutusScript "Discovery Validator" "./compiledLiquidity/discoveryValidator.json" $ pLiquiditySetValidator def "FSN"
-  writePlutusScript "Discovery Mint" "./compiledLiquidity/discoveryMinting.json" $ mkLiquidityNodeMPW def
-  writePlutusScript "Commit Fold Validator" "./compiledLiquidity/foldValidator.json" LiquidityFold.pfoldValidatorW
-  writePlutusScript "Commit Fold Mint" "./compiledLiquidity/foldMint.json" LiquidityFold.pmintFoldPolicyW
-  writePlutusScript "Reward Fold Validator" "./compiledLiquidity/rewardFoldValidator.json" LiquidityFold.prewardFoldValidatorW
-  writePlutusScript "Reward Fold Mint" "./compiledLiquidity/rewardFoldMint.json" LiquidityFold.pmintRewardFoldPolicyW
--- writePlutusScript "multisigStateMint" "./compiled/multisigStateMint.plutus" DAOValidator.pvalidateDaoStateMintW
--- writePlutusScript "smallValidator" "./compiled/smallValidator.plutus" SmallValidator.pvalidateSmallChecksW
+  writePlutusScript "Liquidity Stake Validator" "./compiledLiquidity/liquidityStakeValidator.json" pLiquidityGlobalLogicW
+  writePlutusScript "Liquidity Validator" "./compiledLiquidity/liquidityValidator.json" $ pLiquiditySetValidator def "FSN"
+  writePlutusScript "Liquidity Mint" "./compiledLiquidity/liquidityMinting.json" $ mkLiquidityNodeMPW def
+  writePlutusScript "Collect Fold Validator" "./compiledLiquidity/liquidityFoldValidator.json" LiquidityFold.pfoldValidatorW
+  writePlutusScript "Collect Fold Mint" "./compiledLiquidity/liquidityFoldMint.json" LiquidityFold.pmintFoldPolicyW
+  writePlutusScript "Distribute Fold Validator" "./compiledLiquidity/distributionFoldValidator.json" LiquidityFold.prewardFoldValidatorW
+  writePlutusScript "Distribute Fold Mint" "./compiledLiquidity/distributionRewardFoldMint.json" LiquidityFold.pmintRewardFoldPolicyW
+  writePlutusScript "Proxy Token Holder V1" "./compiledLiquidity/proxyTokenHolderV1.json" ProxyTokenHolderV1.pproxyTokenHolderV1
+

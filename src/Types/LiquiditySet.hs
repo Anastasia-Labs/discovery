@@ -13,7 +13,8 @@ import Plutarch.Api.V2 (
   PPubKeyHash (PPubKeyHash),
   PTxOutRef,
   PCurrencySymbol,
-  PStakingCredential(..)
+  PStakingCredential(..),
+  PTokenName(..)
  )
 import Plutarch.DataRepr (
   DerivePConstantViaData (DerivePConstantViaData),
@@ -28,6 +29,24 @@ import PlutusTx qualified
 import Types.Classes 
 import Types.DiscoverySet (PNodeKey(..), PNodeKeyState(..))
 
+data PProxyTokenHolderDatum (s :: S)
+  = PProxyTokenHolderDatum
+      ( Term
+          s
+          ( PDataRecord
+              '[ "returnAddress" ':= PAddress
+               ]
+          )
+      )
+  deriving stock (Generic)
+  deriving anyclass (PlutusType, PIsData, PDataFields)
+
+instance DerivePlutusType PProxyTokenHolderDatum where
+  type DPTStrat _ = PlutusTypeData
+
+deriving anyclass instance
+  PTryFrom PData PProxyTokenHolderDatum
+  
 data NodeKey = Key BuiltinByteString | Empty
   deriving stock (Show, Eq, Ord, Generic)
 PlutusTx.unstableMakeIsData ''NodeKey
@@ -85,7 +104,7 @@ data PLiquidityConfig (s :: S)
       ( Term
           s
           ( PDataRecord
-              '[ "initUTxO" ':= PTxOutRef 
+              '[ "initUTxO" ':= PTxOutRef
                , "discoveryDeadline" ':= PPOSIXTime
                , "penaltyAddress" ':= PAddress
                ]
@@ -237,13 +256,13 @@ data PLiquidityHolderDatum (s :: S)
       ( Term
           s
           ( PDataRecord
-              '[ "currNode" ':= PLiquiditySetNode
+              '[ "lpTokenName" ':= PTokenName
                , "totalCommitted" ':= PInteger 
                ]
           )
       )
   deriving stock (Generic)
-  deriving anyclass (PlutusType, PIsData, PDataFields)
+  deriving anyclass (PEq, PlutusType, PIsData, PDataFields)
 
 instance DerivePlutusType PLiquidityHolderDatum where
   type DPTStrat _ = PlutusTypeData

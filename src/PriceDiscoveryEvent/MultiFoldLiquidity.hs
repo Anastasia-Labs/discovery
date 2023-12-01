@@ -84,7 +84,8 @@ data PLiquidityFoldMintConfig (s :: S)
               '[ "nodeCS" ':= PCurrencySymbol
                , "foldAddr" ':= PAddress
                , "discoveryDeadline" ':= PPOSIXTime
-               , "oref" ':= PTxOutRef
+               , "startNFT" ':= PCurrencySymbol 
+               -- ^ startNFT should live at a UTxO that can only be spent if this fold token is minted 
                ]
           )
       )
@@ -176,7 +177,7 @@ pburnCommitFold = phoistAcyclic $
     ownPolicyId <- pletC $ pfield @"_0" # policy
 
     info <- pletFieldsC @'["mint"] contextFields.txInfo
-    let tkPairs = ptryLookupValue # ownPolicyId # (pnormalize # info.mint)
+    let tkPairs = ptryLookupValue # ownPolicyId # info.mint
     tkPair <- pletC (pheadSingleton # tkPairs)
     let numMinted = psndBuiltin # tkPair 
     pure $
@@ -185,7 +186,7 @@ pburnCommitFold = phoistAcyclic $
 pmintCommitFold :: Term s (PLiquidityFoldMintConfig :--> PScriptContext :--> PUnit)
 pmintCommitFold = phoistAcyclic $ 
   plam $ \fconfig ctx -> unTermCont $ do 
-    foldConfF <- pletFieldsC @'["nodeCS", "foldAddr", "discoveryDeadline", "oref"] fconfig 
+    foldConfF <- pletFieldsC @'["nodeCS", "foldAddr", "discoveryDeadline", "startNFT"] fconfig 
     contextFields <- pletFieldsC @'["txInfo", "purpose"] ctx
 
     PMinting policy <- pmatchC contextFields.purpose
@@ -193,7 +194,9 @@ pmintCommitFold = phoistAcyclic $
 
     info <- pletFieldsC @'["referenceInputs", "inputs", "outputs", "mint", "validRange"] contextFields.txInfo
 
-    let tkPairs = ptryLookupValue # ownPolicyId # (pnormalize # info.mint)
+    let tkPairs = ptryLookupValue # ownPolicyId # info.mint
+        startPair = pheadSingleton #$ ptryLookupValue # foldConfF.startNFT # info.mint
+        startMinted = psndBuiltin # startPair
     tkPair <- pletC (pheadSingleton # tkPairs)
 
     let numMinted = psndBuiltin # tkPair
@@ -210,16 +213,16 @@ pmintCommitFold = phoistAcyclic $
 
     let foldOutDatum = pfromPDatum @PLiquidityFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
     foldOutDatumF <- pletFieldsC @'["currNode", "committed"] foldOutDatum
-    let hasInitUTxO = phasInput # info.inputs # foldConfF.oref
     let foldInitChecks =
           pand'List
             [ pfromData numMinted #== 1
+            , pcountOfUniqueTokens # foldOutputF.value #== 2
             , pvalueOf # foldOutputF.value # pfromData ownPolicyId # commitFoldTN #== pconstant 1
             , foldOutDatumF.currNode #== refInpDat 
             , pfromData foldOutDatumF.committed #== pconstant 0 
             , pvalueOf # refInputF.value # foldConfF.nodeCS # poriginNodeTN #== pconstant 1
             , pbefore # pfromData foldConfF.discoveryDeadline # info.validRange
-            , hasInitUTxO  
+            , pfromData startMinted #== -1   
             ]
     pure $
         pif foldInitChecks
@@ -494,7 +497,7 @@ pmintRewardFoldPolicyW = phoistAcyclic $
     projectInpF <- pletFieldsC @'["value", "datum"] projectInput
     (POutputDatum projectInpDatum) <- pmatchC projectInpF.datum
     let projectInpDat = punsafeCoerce @_ @_ @PLiquidityHolderDatum (pfield @"outputDatum" # projectInpDatum)
-    projectInpDatF <- pletFieldsC @'["currNode", "totalCommitted"] projectInpDat
+    projectInpDatF <- pletFieldsC @'["totalCommitted"] projectInpDat
 
     refInputF <- pletFieldsC @'["value", "datum"] nodeRefInput
 

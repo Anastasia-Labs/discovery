@@ -179,10 +179,11 @@ library
     PriceDiscoveryEvent.MultiFoldLiquidity
     PriceDiscoveryEvent.Validator
     PriceDiscoveryEvent.ProjectTokenHolder
-    PriceDiscoveryEvent.LiquidityTokenHolder
     LiquidityEvent.Mint.Standard
     LiquidityEvent.Mint.Common 
     LiquidityEvent.Validator
+    LiquidityEvent.ProxyTokenHolderV1
+    LiquidityEvent.LiquidityTokenHolder
     AlwaysFails 
   -- Compile
 

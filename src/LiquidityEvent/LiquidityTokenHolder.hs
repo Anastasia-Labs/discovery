@@ -7,7 +7,7 @@
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# OPTIONS_GHC -Wno-missing-import-lists #-}
 
-module PriceDiscoveryEvent.LiquidityTokenHolder where
+module LiquidityEvent.LiquidityTokenHolder where
 
 import GHC.Stack (HasCallStack)
 import Plutarch (Config (Config), TracingMode (DoTracing))
@@ -66,7 +66,7 @@ import PriceDiscoveryEvent.Utils (
   pfindCurrencySymbolsByTokenName,
   ptryOwnInput, pmustFind, ptryOwnOutput
  )
-import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum )
+import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum, PProxyTokenHolderDatum )
 import PriceDiscoveryEvent.MultiFoldLiquidity (PLiquidityFoldDatum)
 
 data PLiquidityHolderMintAct (s :: S)
@@ -127,7 +127,7 @@ pmintTokenHolder = phoistAcyclic $
 
 data PLiquidityHolderAct (s :: S)
   = PAddCollected (Term s (PDataRecord '[]))
-  | PCreatePool (Term s (PDataRecord '[]))
+  | PForwardToV1 (Term s (PDataRecord '[]))
   | PBeginRewards (Term s (PDataRecord '[]))
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData)
@@ -140,9 +140,9 @@ pliquidityTokenHolder :: Term s (PAsData PCurrencySymbol :--> PAsData PCurrencyS
 pliquidityTokenHolder = phoistAcyclic $ plam $ \rewardsCS commitCS _dat redeemer ctx ->
   let red = punsafeCoerce @_ @_ @PLiquidityHolderAct redeemer 
    in pmatch red $ \case 
-          PAddCollected _ -> popaque $ paddCollected # commitCS # ctx 
-          PCreatePool _ -> perror -- TODO
-          PBeginRewards _ -> pbeginRewards # rewardsCS # ctx
+        PAddCollected _ -> popaque $ paddCollected # commitCS # ctx 
+        PForwardToV1 _ -> perror -- TODO
+        PBeginRewards _ -> pbeginRewards # rewardsCS # ctx
 
 pbeginRewards :: Term s (PAsData PCurrencySymbol :--> PScriptContext :--> POpaque)
 pbeginRewards = phoistAcyclic $ plam $ \rewardsCS ctx -> unTermCont $ do 
@@ -191,7 +191,7 @@ paddCollected = phoistAcyclic $ plam $ \commitCS ctx -> unTermCont $ do
   ownOutputF <- pletFieldsC @'["value", "datum"] ownOutput  
   
   (POutputDatum ownOutDatum) <- pmatchC ownOutputF.datum
-  ownOutDatF <- pletFieldsC @'["currNode", "totalCommitted"] (pfromPDatum @PLiquidityHolderDatum # (pfield @"outputDatum" # ownOutDatum))
+  ownOutDatF <- pletFieldsC @'["totalCommitted"] (pfromPDatum @PLiquidityHolderDatum # (pfield @"outputDatum" # ownOutDatum))
  
   let commitTkPair = (pheadSingleton #$ ptryLookupValue # commitCS # mintedValue)
       commitTkBurned = (pfromData $ psndBuiltin # commitTkPair) #== -1
@@ -200,7 +200,6 @@ paddCollected = phoistAcyclic $ plam $ \commitCS ctx -> unTermCont $ do
           pand'List
             [ commitTkBurned 
             , pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
-            , ownOutDatF.currNode #== commitDatF.currNode 
             , ownOutDatF.totalCommitted #== commitDatF.committed 
             ] 
   pure $
