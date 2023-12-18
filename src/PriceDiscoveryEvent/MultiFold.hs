@@ -66,12 +66,16 @@ import PriceDiscoveryEvent.Utils (
   ptryOwnInput,
   ptryOwnOutput,
   pvalueOfOne,
-  (#>), ptxSignedByPkh, pfoldl2, pvalueOfOneScott, pcountScriptInputs, pfindCurrencySymbolsByTokenName,
+  (#>),
+  ptxSignedByPkh,
+  pfoldl2,
+  pvalueOfOneScott,
+  pcountScriptInputs,
+  pfindCurrencySymbolsByTokenName, pcountOfUniqueTokens,
  )
 import Types.Classes
 import Types.Constants (commitFoldTN, minAda, nodeAda, poriginNodeTN, rewardFoldTN, projectTokenHolderTN, foldingFee)
 import Types.DiscoverySet
-import PriceDiscoveryEvent.Utils ((#-))
 
 data PFoldMintConfig (s :: S)
   = PFoldMintConfig
@@ -235,15 +239,14 @@ pfoldValidatorW = phoistAcyclic $
             let ownInput = ptryOwnInput # infoF.inputs # ownRef
             ownInputF <- pletFieldsC @'["address", "value"] ownInput
             let possibleCSs = pfindCurrencySymbolsByTokenName # ownInputF.value # commitFoldTN 
-                pthCS = pheadSingleton # possibleCSs
-                tkhPairs = ptryLookupValue # pthCS # infoF.mint
-                tkhPair = (pheadSingleton # tkhPairs)
-                thkMinted = psndBuiltin # tkhPair 
+                commitCS = pheadSingleton # possibleCSs
+                commitPairs = ptryLookupValue # commitCS # infoF.mint
+                commitPair = (pheadSingleton # commitPairs)
+                commitMinted = psndBuiltin # commitPair 
             pure $ 
-              pif (ptxSignedByPkh # ownerPkh # infoF.signatories #&& pfromData thkMinted #== -1)
+              pif (ptxSignedByPkh # ownerPkh # infoF.signatories #&& pfromData commitMinted #== -1)
                   (popaque $ pconstant ())
-                  perror 
-            
+                  perror  
 
 pisSuccessor :: Term s (PCurrencySymbol :--> PCommitFoldState :--> PTxOut :--> PCommitFoldState)
 pisSuccessor = plam $ \nodeCS accNode node -> unTermCont $ do
@@ -278,7 +281,7 @@ pfoldNodes = phoistAcyclic $
     PScriptCredential ((pfield @"_0" #) -> ownValHash) <- pmatchC (pfield @"credential" # ownInputF.address)
     datF <- pletFieldsC @'["currNode", "committed", "owner"] dat
     currFoldNodeF <- pletFieldsC @'["key", "next"] datF.currNode
-
+    
     let ownOutput = ptryOwnOutput # info.outputs # ownValHash
     ownOutputF <- pletFieldsC @'["address", "value", "datum"] ownOutput
     (POutputDatum foldOutputDatum) <- pmatchC ownOutputF.datum
@@ -302,10 +305,17 @@ pfoldNodes = phoistAcyclic $
     let nodeInputs :: Term _ (PBuiltinList PTxOut)
         nodeInputs = pmap @PBuiltinList # plam (\i -> pfield @"resolved" # (pelemAt' # pfromData i # refIns)) # nodeIndices
         newCommitFoldState' = pfoldl # (pisSuccessor # pfromData nodeCS) # commitFoldState # nodeInputs
+        countOwnInputs = plength 
+            # ( pfilter @PBuiltinList
+                  # plam (\txInp -> (pfield @"address" # (pfield @"resolved" # txInp)) #== ownInputF.address)
+                  # info.inputs 
+              )
     newCommitFoldState <- pmatchC newCommitFoldState'
     let foldChecks =
           pand'List
-            [ currFoldNodeF.key #== newFoldNodeF.key
+            [ countOwnInputs #== 1
+            , pfromData info.mint #== mempty
+            , currFoldNodeF.key #== newFoldNodeF.key
             , newCommitFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
             , pfromData newFoldDatumF.committed #== newCommitFoldState.committed
             , newFoldDatumF.owner #== datF.owner 
@@ -456,6 +466,7 @@ pmintRewardFoldPolicyW = phoistAcyclic $
             , totalProjectTkns #== pvalueOf # foldOutputF.value # rewardConfigF.projectCS # rewardConfigF.projectTN
             , totalProjectTkns #== pvalueOf # (pfield @"value" # projectInput) # rewardConfigF.projectCS # rewardConfigF.projectTN
             , pvalueOf # foldOutputF.value # pfromData ownPolicyId # rewardFoldTN #== 1
+            , pcountOfUniqueTokens # foldOutputF.value #== 3
             , pmatch
                 commitFoldNodeF.next
                 ( \case
@@ -659,22 +670,22 @@ prewardFoldNode = phoistAcyclic $
 
     let foldOutDatum = pfromPDatum @PRewardFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
     foldOutDatumF <- pletFieldsC @'["currNode", "totalProjectTokens", "totalCommitted", "owner"] foldOutDatum
-
+    oldTotalProjectTokens <- pletC datF.totalProjectTokens
     oldTotalCommitted <- pletC datF.totalCommitted
-
+    nodeCSS <- pletC $ pfromData rewardConfigF.nodeCS
     let nodeInputs =
           pfilter @PBuiltinList
-            # plam (\inp -> (pvalueOfOne # rewardConfigF.nodeCS # (pfield @"value" # (pfield @"resolved" # inp))))
+            # plam (\inp -> (pvalueOfOneScott # nodeCSS # (pfield @"value" # (pfield @"resolved" # inp))))
             # info.inputs
     nodeInputF <- pletFieldsC @'["address", "value", "datum"] (pfield @"resolved" # (pheadSingleton # nodeInputs))
     (POutputDatum nodeInpDatum) <- pmatchC nodeInputF.datum
 
     nodeInputValue <- pletC nodeInputF.value
+    
     nodeCommitment <- pletC $ plovelaceValueOf # nodeInputValue - nodeAda
-    owedProjectTkns <- pletC $ pdiv # (nodeCommitment * datF.totalProjectTokens) # datF.totalCommitted
+    owedProjectTkns <- pletC $ pdiv # (nodeCommitment * oldTotalProjectTokens) # oldTotalCommitted
     -- doesn't work with no decimal tokens
-    -- nodeOutputValue = nodeOutputValue + rewardFoldProjectTk - nodeInputAda
-    let nodeInpDat = pfromPDatum @PDiscoverySetNode # (pfield @"outputDatum" # nodeInpDatum)
+    let nodeInpDat = punsafeCoerce @_ @_ @PDiscoverySetNode (pfield @"outputDatum" # nodeInpDatum)
     nodeInpDatF <- pletFieldsC @'["key", "next"] nodeInpDat
 
     let nodeOutput = ptryOutputToAddress # txOuts # nodeInputF.address
@@ -684,7 +695,7 @@ prewardFoldNode = phoistAcyclic $
     mkAdaValue <- pletC $ Value.psingleton # padaSymbol # padaToken
     distributedValue <- pletC $ mkProjValue # (-owedProjectTkns)
     posDistributedValue <- pletC $ mkProjValue # owedProjectTkns
-    collectedAdaValue <- pletC $ mkAdaValue # (-nodeCommitment)
+    collectedAdaValue <- pletC $ mkAdaValue # ((-nodeCommitment) - foldingFee) 
     posCollectedAdaValue <- pletC $ mkAdaValue # nodeCommitment
 
     let correctOwnOutput = (pforgetPositive ownInputF.value) <> distributedValue 
@@ -695,7 +706,7 @@ prewardFoldNode = phoistAcyclic $
             [ currFoldNodeF.next #== nodeInpDatF.key,
               foldOutDatumF.currNode #== nodeInpDat,
               foldOutDatumF.totalCommitted #== oldTotalCommitted,
-              foldOutDatumF.totalProjectTokens #== datF.totalProjectTokens,
+              foldOutDatumF.totalProjectTokens #== oldTotalProjectTokens,
               foldOutDatumF.owner #== datF.owner,
               (pnoAdaValue # correctOwnOutput ) #== (pnoAdaValue #$ pforgetPositive ownOutputF.value),
               correctNodeOutput #== (pforgetPositive nodeOutputF.value),

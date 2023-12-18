@@ -1,9 +1,9 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 
-module PriceDiscoveryEvent.Mint.Standard (
-  mkDiscoveryNodeMP,
-  mkDiscoveryNodeMPW,
+module LiquidityEvent.Mint.Standard (
+  mkLiquidityNodeMP,
+  mkLiquidityNodeMPW,
 ) where
 
 import Plutarch.Api.V2 (
@@ -18,7 +18,7 @@ import Plutarch.Extra.Interval (pafter, pbefore)
 import Plutarch.Internal (Config (..))
 import Plutarch.Monadic qualified as P
 import Plutarch.Unsafe (punsafeCoerce)
-import PriceDiscoveryEvent.Mint.Common (
+import LiquidityEvent.Mint.Common (
   PPriceDiscoveryCommon (mint, ownCS),
   makeCommon,
   pDeinit,
@@ -30,24 +30,23 @@ import PriceDiscoveryEvent.Mint.Common (
 import PriceDiscoveryEvent.Mint.Helpers (
   hasUtxoWithRef,
  )
-
 import Plutarch.Prelude
 import PriceDiscoveryEvent.Utils (pand'List, passert, pcond)
-import Types.DiscoverySet (PDiscoveryConfig (..), PDiscoveryNodeAction (..))
+import Types.LiquiditySet (PLiquidityConfig (..), PLiquidityNodeAction (..))
 
 --------------------------------
 -- FinSet Node Minting Policy:
 --------------------------------
 
-mkDiscoveryNodeMP ::
+mkLiquidityNodeMP ::
   Config ->
   ClosedTerm
-    ( PDiscoveryConfig
-        :--> PDiscoveryNodeAction
+    ( PLiquidityConfig
+        :--> PLiquidityNodeAction
         :--> PScriptContext
         :--> PUnit
     )
-mkDiscoveryNodeMP cfg = plam $ \discConfig redm ctx -> P.do
+mkLiquidityNodeMP cfg = plam $ \discConfig redm ctx -> P.do
   configF <- pletFields @'["initUTxO"] discConfig
 
   (common, inputs, outs, sigs, vrange) <-
@@ -55,14 +54,14 @@ mkDiscoveryNodeMP cfg = plam $ \discConfig redm ctx -> P.do
       makeCommon cfg ctx
 
   pmatch redm $ \case
-    PInit _ -> P.do
+    PLInit _ -> P.do
       passert "Init must consume TxOutRef" $
         hasUtxoWithRef # configF.initUTxO # inputs
       pInit cfg common
-    PDeinit _ ->
+    PLDeinit _ ->
       -- TODO deinit must check that reward fold has been completed
       pDeinit cfg common
-    PInsert action -> P.do
+    PLInsert action -> P.do
       act <- pletFields @'["keyToInsert", "coveringNode"] action
       let insertChecks =
             pand'List
@@ -70,7 +69,7 @@ mkDiscoveryNodeMP cfg = plam $ \discConfig redm ctx -> P.do
               , pelem # act.keyToInsert # sigs
               ]
       pif insertChecks (pInsert cfg common # act.keyToInsert # act.coveringNode) perror
-    PRemove action -> P.do
+    PLRemove action -> P.do
       configF <- pletFields @'["discoveryDeadline"] discConfig
       act <- pletFields @'["keyToRemove", "coveringNode"] action
       discDeadline <- plet configF.discoveryDeadline
@@ -80,12 +79,12 @@ mkDiscoveryNodeMP cfg = plam $ \discConfig redm ctx -> P.do
         ]
         perror 
 
-mkDiscoveryNodeMPW ::
+mkLiquidityNodeMPW ::
   Config ->
   ClosedTerm
-    ( PDiscoveryConfig
+    ( PLiquidityConfig
         :--> PMintingPolicy
     )
-mkDiscoveryNodeMPW cfg = phoistAcyclic $ plam $ \discConfig redm ctx ->
-  let red = punsafeCoerce @_ @_ @PDiscoveryNodeAction redm
-   in popaque $ mkDiscoveryNodeMP cfg # discConfig # red # ctx
+mkLiquidityNodeMPW cfg = phoistAcyclic $ plam $ \discConfig redm ctx ->
+  let red = punsafeCoerce @_ @_ @PLiquidityNodeAction redm
+   in popaque $ mkLiquidityNodeMP cfg # discConfig # red # ctx

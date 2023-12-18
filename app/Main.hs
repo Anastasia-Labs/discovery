@@ -41,6 +41,10 @@ import PriceDiscoveryEvent.Mint.Standard (mkDiscoveryNodeMPW)
 import PriceDiscoveryEvent.MultiFold (pfoldValidatorW, pmintFoldPolicyW, pmintRewardFoldPolicyW, prewardFoldValidatorW)
 import PriceDiscoveryEvent.Validator (pDiscoverySetValidator, pDiscoverGlobalLogicW)
 import PriceDiscoveryEvent.ProjectTokenHolder (pprojectTokenHolder, pmintProjectTokenHolder)
+import PriceDiscoveryEvent.MultiFoldLiquidity qualified as LiquidityFold 
+import LiquidityEvent.Mint.Standard (mkLiquidityNodeMPW)
+import LiquidityEvent.Validator (pLiquiditySetValidator, pLiquidityGlobalLogicW)
+import LiquidityEvent.ProxyTokenHolderV1 qualified as ProxyTokenHolderV1
 import AlwaysFails (pAlwaysFails, pAuthMint)
 import System.IO
 
@@ -82,5 +86,12 @@ main = do
   writePlutusScript "Auth Mint" "./compiled/authMint.json" pAuthMint
   writePlutusScript "Token Holder Validator" "./compiled/tokenHolderValidator.json" pprojectTokenHolder
   writePlutusScript "Token Holder Policy" "./compiled/tokenHolderPolicy.json" pmintProjectTokenHolder
--- writePlutusScript "multisigStateMint" "./compiled/multisigStateMint.plutus" DAOValidator.pvalidateDaoStateMintW
--- writePlutusScript "smallValidator" "./compiled/smallValidator.plutus" SmallValidator.pvalidateSmallChecksW
+  writePlutusScript "Liquidity Stake Validator" "./compiledLiquidity/liquidityStakeValidator.json" pLiquidityGlobalLogicW
+  writePlutusScript "Liquidity Validator" "./compiledLiquidity/liquidityValidator.json" $ pLiquiditySetValidator def "FSN"
+  writePlutusScript "Liquidity Mint" "./compiledLiquidity/liquidityMinting.json" $ mkLiquidityNodeMPW def
+  writePlutusScript "Collect Fold Validator" "./compiledLiquidity/liquidityFoldValidator.json" LiquidityFold.pfoldValidatorW
+  writePlutusScript "Collect Fold Mint" "./compiledLiquidity/liquidityFoldMint.json" LiquidityFold.pmintFoldPolicyW
+  writePlutusScript "Distribute Fold Validator" "./compiledLiquidity/distributionFoldValidator.json" LiquidityFold.prewardFoldValidatorW
+  writePlutusScript "Distribute Fold Mint" "./compiledLiquidity/distributionRewardFoldMint.json" LiquidityFold.pmintRewardFoldPolicyW
+  writePlutusScript "Proxy Token Holder V1" "./compiledLiquidity/proxyTokenHolderV1.json" ProxyTokenHolderV1.pproxyTokenHolderV1
+

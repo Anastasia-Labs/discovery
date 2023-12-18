@@ -170,13 +170,20 @@ library
     Types.Classes
     Types.Constants
     Types.DiscoverySet 
+    Types.LiquiditySet
     PriceDiscoveryEvent.Utils
     PriceDiscoveryEvent.Mint.Common
     PriceDiscoveryEvent.Mint.Helpers
     PriceDiscoveryEvent.Mint.Standard
     PriceDiscoveryEvent.MultiFold
+    PriceDiscoveryEvent.MultiFoldLiquidity
     PriceDiscoveryEvent.Validator
     PriceDiscoveryEvent.ProjectTokenHolder
+    LiquidityEvent.Mint.Standard
+    LiquidityEvent.Mint.Common 
+    LiquidityEvent.Validator
+    LiquidityEvent.ProxyTokenHolderV1
+    LiquidityEvent.LiquidityTokenHolder
     AlwaysFails 
   -- Compile
 

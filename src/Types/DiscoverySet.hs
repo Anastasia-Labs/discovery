@@ -109,7 +109,6 @@ data PDiscoveryConfig (s :: S)
 
 instance DerivePlutusType PDiscoveryConfig where type DPTStrat _ = PlutusTypeData
 
--- For details see specification documents and Vulcan.Common.Types module(s).
 data DiscoveryNodeKey = Key BuiltinByteString | Empty
   deriving stock (Show, Eq, Ord, Generic)
 PlutusTx.unstableMakeIsData ''DiscoveryNodeKey

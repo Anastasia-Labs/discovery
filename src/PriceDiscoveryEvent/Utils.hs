@@ -7,6 +7,8 @@ import Data.Text qualified as T
 import Plutarch.Api.V1 (AmountGuarantees (Positive), KeyGuarantees (Sorted), PCredential (PPubKeyCredential, PScriptCredential))
 import Plutarch.Api.V1.Scripts (PScriptHash)
 import Plutarch.Api.V1.Value (padaSymbol, pvalueOf, pnormalize)
+import Plutarch.Api.V1.AssocMap qualified as AssocMap
+
 import Plutarch.Api.V2 (
   PAddress,
   PCurrencySymbol,
@@ -86,21 +88,42 @@ pcountScriptInputs =
      in go # 0
 
 pfoldl2 ::
-  (PListLike list1, PListLike list2, PElemConstraint list1 a, PElemConstraint list2 b) =>
-  Term s ((acc :--> a :--> b :--> acc) :--> acc :--> list1 a :--> list2 b :--> acc)
+  (PListLike listA, PListLike listB, PElemConstraint listA a, PElemConstraint listB b) =>
+  Term s ((acc :--> a :--> b :--> acc) :--> acc :--> listA a :--> listB b :--> acc)
 pfoldl2 =
   phoistAcyclic $ plam $ \func ->
     pfix #$ plam $ \self acc la lb ->
       pelimList
-        ( \a tas ->
+        ( \a as ->
             pelimList
-              (\b tbs -> self # (func # acc # a # b) # tas # tbs)
+              (\b bs -> self # (func # acc # a # b) # as # bs)
               perror
               lb
         )
         (pif (pnull # lb) acc perror)
         la
 
+pelemAtWithRest' :: PListLike list => PElemConstraint list a => Term s (PInteger :--> list a :--> PPair a (list a))
+pelemAtWithRest' = phoistAcyclic $
+  pfix #$ plam $ \self n xs ->
+    pif
+      (n #== 0)
+      (pcon $ PPair (phead # xs) (ptail # xs))
+      (self # (n - 1) #$ ptail # xs)
+
+pmapIdxs ::
+  (PListLike listB, PElemConstraint listB b) =>
+  Term s (PBuiltinList (PAsData PInteger) :--> listB b :--> listB b)
+pmapIdxs =
+  phoistAcyclic $
+    pfix #$ plam $ \self la lb ->
+      pelimList
+        ( \a as -> P.do
+            PPair foundEle xs <- pmatch $ pelemAtWithRest' # pfromData a # lb
+            (pcons # foundEle # (self # as # xs))
+        )
+        pnil
+        la
 
 {- | Finds the associated Currency symbols that contain the given token
   name.
@@ -207,6 +230,14 @@ pelemAt' = phoistAcyclic $
       (n #== 0)
       (phead # xs)
       (self # (n - 1) #$ ptail # xs)
+
+pelemAtFlipped' :: PIsListLike l a => Term s (l a :--> PInteger :--> a)
+pelemAtFlipped' = phoistAcyclic $
+  pfix #$ plam $ \self xs n ->
+    pif
+      (n #== 0)
+      (phead # xs)
+      (self # (ptail # xs) # (n - 1))
 
 pmapMaybe ::
   forall (list :: PType -> PType) (a :: PType) (b :: PType).
@@ -325,7 +356,7 @@ psymbolValueOfHelper =
           # 0
           # m
 
--- | @since 1.0.0
+-- | Sum of total positive amounts in Value for a given policyId
 ppositiveSymbolValueOf ::
   forall
     (keys :: KeyGuarantees)
@@ -334,7 +365,7 @@ ppositiveSymbolValueOf ::
   Term s (PCurrencySymbol :--> (PValue keys amounts :--> PInteger))
 ppositiveSymbolValueOf = phoistAcyclic $ psymbolValueOfHelper #$ plam (0 #<)
 
--- | @since 1.0.0
+-- | Sum of total negative amounts in Value for a given policyId
 pnegativeSymbolValueOf ::
   forall
     (keys :: KeyGuarantees)
@@ -455,6 +486,24 @@ ptryLookupValue = phoistAcyclic $
         )
         (const perror)
         # pto val'
+
+{- | Removes a currency symbol from a value 
+-}
+pfilterCSFromValue ::
+  forall
+    (anyOrder :: KeyGuarantees)
+    (anyAmount :: AmountGuarantees).
+  ClosedTerm
+    ( PValue anyOrder anyAmount
+        :--> PAsData PCurrencySymbol
+        :--> PValue anyOrder anyAmount
+    )
+pfilterCSFromValue = phoistAcyclic $
+  plam $ \value policyId ->
+      let mapVal = pto (pto value)
+          go = pfix #$ plam $ \self ys ->
+                pelimList (\x xs -> pif (pfstBuiltin # x #== policyId) xs (pcons # x # (self # xs))) pnil ys
+       in pcon (PValue $ pcon $ PMap $ go # mapVal)
 
 psingletonOfCS ::
   forall
