@@ -34,7 +34,8 @@ data PProxyTokenHolderDatum (s :: S)
       ( Term
           s
           ( PDataRecord
-              '[ "returnAddress" ':= PAddress
+              '[ "totalCommitted" ':= PInteger 
+               , "returnAddress" ':= PAddress
                ]
           )
       )
@@ -258,6 +259,7 @@ data PLiquidityHolderDatum (s :: S)
           ( PDataRecord
               '[ "lpTokenName" ':= PTokenName
                , "totalCommitted" ':= PInteger 
+               , "totalLPTokens" ':= PInteger
                ]
           )
       )

@@ -35,7 +35,7 @@ import Plutarch.Unsafe (punsafeCoerce)
 import PlutusLedgerApi.V2
 import PlutusTx qualified
 import Types.Constants (projectTokenHolderTN, rewardFoldTN, commitFoldTN)
-import Types.LiquiditySet (PLiquidityHolderDatum(..))
+import Types.LiquiditySet (PLiquidityHolderDatum(..), PProxyTokenHolderDatum)
 import PriceDiscoveryEvent.Utils (
   pand'List,
   pheadSingleton,
@@ -76,11 +76,11 @@ pmustFindDatum =
 pproxyTokenHolderV1 :: Term s (PAsData PCurrencySymbol :--> PData :--> PData :--> PScriptContext :--> POpaque)
 pproxyTokenHolderV1 = phoistAcyclic $ plam $ \poolTokenCS datum redeemer ctx ->
   let red = punsafeCoerce @_ @_ @PProxyTokenHolderAct redeemer 
-      dat = punsafeCoerce @_ @_ @PAddress datum 
+      dat = punsafeCoerce @_ @_ @PProxyTokenHolderDatum datum 
    in pmatch red $ \case 
         PInitPool _ -> popaque $ pinitPool # poolTokenCS # dat # ctx 
 
-pinitPool :: Term s (PAsData PCurrencySymbol :--> PAddress :--> PScriptContext :--> POpaque)
+pinitPool :: Term s (PAsData PCurrencySymbol :--> PProxyTokenHolderDatum :--> PScriptContext :--> POpaque)
 pinitPool = phoistAcyclic $ plam $ \poolTokenCS datum ctx -> unTermCont $ do 
   ctxF <- pletFieldsC @'["txInfo", "purpose"] ctx 
   infoF <- pletFieldsC @'["inputs", "mint", "outputs", "datums"] ctxF.txInfo
@@ -92,9 +92,9 @@ pinitPool = phoistAcyclic $ plam $ \poolTokenCS datum ctx -> unTermCont $ do
               # plam (\inp -> pfield @"outRef" # inp #== ownRef)
               # infoF.inputs 
           )
-  ownInputF <- pletFieldsC @'["value", "datumHash"] ownInput
-  PDJust ((pfield @"_0" #) -> ownInputDH) <- pmatchC ownInputF.datumHash 
-  let returnAddress = punsafeCoerce @_ @_ @PAddress (pmustFindDatum # ownInputDH # infoF.datums)
+  ownInputF <- pletFieldsC @'["value"] ownInput
+  ownDatumF <- pletFieldsC @'["returnAddress", "totalCommitted"] datum 
+  let returnAddress = ownDatumF.returnAddress
       poolPairs = ptryLookupValue # poolTokenCS # infoF.mint
       lpPair = (phead # poolPairs)
       poolPair = (pheadSingleton # (ptail # poolPairs))
@@ -117,7 +117,7 @@ pinitPool = phoistAcyclic $ plam $ \poolTokenCS datum ctx -> unTermCont $ do
   
   PDJust ((pfield @"_0" #) -> forwardOutputDH) <- pmatchC forwardOutputF.datumHash 
   let forwardDatum = punsafeCoerce @_ @_ @PLiquidityHolderDatum (pmustFindDatum # forwardOutputDH # infoF.datums) 
-      expectedDatum = pcon $ PLiquidityHolderDatum $ pdcons @"lpTokenName" # lpTokenName #$ pdcons @"totalCommitted" # lpMinted # pdnil 
+      expectedDatum = pcon $ PLiquidityHolderDatum $ pdcons @"lpTokenName" # lpTokenName #$ pdcons @"totalCommitted" # ownDatumF.totalCommitted #$ pdcons @"totalLPTokens" # lpMinted # pdnil 
       validatorChecks = 
         pand'List 
           [ forwardDatum #== expectedDatum

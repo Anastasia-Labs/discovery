@@ -75,15 +75,15 @@ pLiquiditySetValidator cfg prefix = plam $ \discConfig dat redmn ctx' ->
         ownInputF <- pletFields @'["value", "address"] ownInput
 
         let ownInputValue = pfromData ownInputF.value
-            -- all those CSs has tokens that prefixed by Node prefix
-            -- any of those can be actual Node CS
-            potentialNodeCSs = pfindCurrencySymbolsByTokenPrefix # ownInputValue # pconstant prefix
 
         case otherRedeemers of 
           PLLinkedListAct _ -> P.do
+            -- all those CSs has tokens that prefixed by Node prefix
+            -- any of those can be actual Node CS
+            let potentialNodeCSs = pfindCurrencySymbolsByTokenPrefix # ownInputValue # pconstant prefix
             -- TODO: Current launchpad token cannot start with FSN
             passert
-              "Must mint/burn for any FinSet input"
+              "Must mint/burn for any linked list interaction"
               (pcontainsCurrencySymbols # pfromData info.mint # potentialNodeCSs)
             (popaque $ pconstant ())
           PLModifyCommitment _ -> P.do
