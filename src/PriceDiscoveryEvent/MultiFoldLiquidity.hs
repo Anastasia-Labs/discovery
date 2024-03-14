@@ -74,7 +74,7 @@ import Types.Constants (commitFoldTN, minAda, nodeAda, poriginNodeTN, rewardFold
 import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum )
 import Types.DiscoverySet (PNodeKey(..), PNodeKeyState(..))
 
-import PriceDiscoveryEvent.Utils ((#-), pcountOfUniqueTokens)
+import PriceDiscoveryEvent.Utils (pcountOfUniqueTokens)
 
 data PLiquidityFoldMintConfig (s :: S)
   = PLiquidityFoldMintConfig
@@ -83,8 +83,7 @@ data PLiquidityFoldMintConfig (s :: S)
           ( PDataRecord
               '[ "nodeCS" ':= PCurrencySymbol
                , "foldAddr" ':= PAddress
-               , "discoveryDeadline" ':= PPOSIXTime
-               , "startNFT" ':= PCurrencySymbol 
+               , "discoveryDeadline" ':= PPOSIXTime 
                -- ^ startNFT should live at a UTxO that can only be spent if this fold token is minted 
                ]
           )
@@ -195,8 +194,6 @@ pmintCommitFold = phoistAcyclic $
     info <- pletFieldsC @'["referenceInputs", "inputs", "outputs", "mint", "validRange"] contextFields.txInfo
 
     let tkPairs = ptryLookupValue # ownPolicyId # info.mint
-        startPair = pheadSingleton #$ ptryLookupValue # foldConfF.startNFT # info.mint
-        startMinted = psndBuiltin # startPair
     tkPair <- pletC (pheadSingleton # tkPairs)
 
     let numMinted = psndBuiltin # tkPair
@@ -221,8 +218,7 @@ pmintCommitFold = phoistAcyclic $
             , foldOutDatumF.currNode #== refInpDat 
             , pfromData foldOutDatumF.committed #== pconstant 0 
             , pvalueOf # refInputF.value # foldConfF.nodeCS # poriginNodeTN #== pconstant 1
-            , pbefore # pfromData foldConfF.discoveryDeadline # info.validRange
-            , pfromData startMinted #== -1   
+            , pbefore # pfromData foldConfF.discoveryDeadline # info.validRange 
             ]
     pure $
         pif foldInitChecks
