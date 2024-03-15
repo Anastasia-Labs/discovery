@@ -67,7 +67,7 @@ import PriceDiscoveryEvent.Utils (
   ptryOwnInput,
   ptryOwnOutput,
   pvalueOfOne,
-  (#>), ptxSignedByPkh, pfoldl2, pvalueOfOneScott, pcountScriptInputs, pfindCurrencySymbolsByTokenName, pmustFind,
+  (#>), ptxSignedByPkh, pfoldl2, pvalueOfOneScott, pcountScriptInputs, pfindCurrencySymbolsByTokenName, pmustFind, (#>=),
  )
 import Types.Classes
 import Types.Constants (commitFoldTN, minAda, nodeAda, poriginNodeTN, rewardFoldTN, projectTokenHolderTN, foldingFee)
@@ -84,7 +84,6 @@ data PLiquidityFoldMintConfig (s :: S)
               '[ "nodeCS" ':= PCurrencySymbol
                , "foldAddr" ':= PAddress
                , "discoveryDeadline" ':= PPOSIXTime 
-               -- ^ startNFT should live at a UTxO that can only be spent if this fold token is minted 
                ]
           )
       )
@@ -185,7 +184,7 @@ pburnCommitFold = phoistAcyclic $
 pmintCommitFold :: Term s (PLiquidityFoldMintConfig :--> PScriptContext :--> PUnit)
 pmintCommitFold = phoistAcyclic $ 
   plam $ \fconfig ctx -> unTermCont $ do 
-    foldConfF <- pletFieldsC @'["nodeCS", "foldAddr", "discoveryDeadline", "startNFT"] fconfig 
+    foldConfF <- pletFieldsC @'["nodeCS", "foldAddr", "discoveryDeadline"] fconfig 
     contextFields <- pletFieldsC @'["txInfo", "purpose"] ctx
 
     PMinting policy <- pmatchC contextFields.purpose
@@ -302,16 +301,15 @@ pisLiquiditySuccessor nodeCS accNode inputNode outputNode = unTermCont $ do
   outputNodeDatumF <- pletFieldsC @'["key", "next", "commitment"] outputNodeDatum
 
   -- outputNodeValue <- pletC $ nodeOutputF.value 
-  nodeCommitment <- pletC $ (plovelaceValueOf # inputNodeValue) - nodeAda - foldingFee
+  nodeCommitment <- pletC $ (plovelaceValueOf # inputNodeValue) - 5_000_000
 
   let nodeKey = toScott $ pfromData inputNodeDatumF.key
-      owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment)) 
+      owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) 
       successorChecks = 
         pand'List 
           [ (accNodeF.next #== nodeKey)
           , (inputNodeValue <> owedAdaValue) #== pforgetPositive outputNodeF.value
           , outputNodeF.address #== inputNodeF.address 
-          --, outputNodeF.datum #== inputNodeF.datum 
           , outputNodeDatumF.key #== inputNodeDatumF.key
           , outputNodeDatumF.next #== inputNodeDatumF.next
           , outputNodeDatumF.commitment #== nodeCommitment
@@ -358,11 +356,6 @@ pfoldNodes = phoistAcyclic $
         foldOutDatum = pfromPDatum @PLiquidityFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
     newFoldDatumF <- pletFieldsC @'["currNode", "committed", "owner"] foldOutDatum
     newFoldNodeF <- pletFieldsC @'["key", "next"] newFoldDatumF.currNode
-
-    -- let nodeInputs :: Term _ (PBuiltinList PTxOut)
-    --     nodeInputs = pmap @PBuiltinList # plam (\i -> pfield @"resolved" # (pelemAt' # pfromData i # refIns)) # nodeInputIndices
-    --     nodeOutputs = pmap @PBuiltinList # plam (\i -> pfield @"resolved" # (pelemAt' # pfromData i # info.outputs)) # nodeOutIndices
-
     newCommitFoldState <- pmatchC $ pfoldBijectiveUTxOs (pisLiquiditySuccessor $ pfromData nodeCS) commitFoldState txInputs info.outputs nodeInputIndices nodeOutIndices
 
     let collectedAda = Value.psingleton # padaSymbol # padaToken # newCommitFoldState.committed 
@@ -514,6 +507,7 @@ pmintRewardFoldPolicyW = phoistAcyclic $
             , foldOutDatumF.currNode #== refInpDat
             , totalProjectTkns #== pvalueOf # foldOutputValue # lpTokenCS # lpTokenName
             , totalProjectTkns #== projectInpDatF.totalLPTokens
+            , totalProjectTkns #>= 1
             , pforgetPositive foldOutputValue #== collectedAda <> projectTokens <> rfoldToken
             , projectInpDatF.totalCommitted #== foldOutDatumF.totalCommitted 
             , pvalueOf # mintedValue # tokenHolderCS # projectTokenHolderTN #== -1

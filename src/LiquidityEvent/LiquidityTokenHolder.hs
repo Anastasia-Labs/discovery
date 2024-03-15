@@ -52,7 +52,7 @@ import Plutarch.Lift (PConstantDecl, PUnsafeLiftDecl (..))
 import Plutarch.List (pfoldl')
 import Plutarch.Num ((#+))
 import Plutarch.Prelude
-import Plutarch.Unsafe (punsafeCoerce)
+import Plutarch.Unsafe (punsafeCoerce, punsafeDowncast)
 import PlutusLedgerApi.V2
 import PlutusTx qualified
 import Types.Constants (projectTokenHolderTN, rewardFoldTN, commitFoldTN)
@@ -66,9 +66,29 @@ import PriceDiscoveryEvent.Utils (
   pfindCurrencySymbolsByTokenName,
   ptryOwnInput, pmustFind, ptryOwnOutput
  )
-import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum(..), PProxyTokenHolderDatum )
+import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum(..), PProxyTokenHolderDatum(..) )
 import PriceDiscoveryEvent.MultiFoldLiquidity (PLiquidityFoldDatum)
 import Plutarch.Builtin (pforgetData)
+import qualified Plutarch.Monadic as P
+import qualified Plutarch.Api.V1 as V1
+import Plutarch.Api.V2.Tx (POutputDatum(POutputDatumHash))
+
+pmustFindDatum ::
+  Term s (V1.PDatumHash :--> V1.PMap 'V1.Unsorted V1.PDatumHash V1.PDatum :--> PData)
+pmustFindDatum =
+  phoistAcyclic $ plam $ \datumHash datums ->
+    (pfix #$ plam $ \self datumList ->
+      (pelimList
+        ( \datumTuple datumTuples ->
+            pif
+              (datumHash #== (pfromData (pfstBuiltin # datumTuple)))
+              (pforgetData $ psndBuiltin # datumTuple) 
+              (self # datumTuples)
+        )
+        perror
+        datumList)
+    ) 
+    # (pto datums) 
 
 data PLiquidityHolderMintAct (s :: S)
   = PMintHolder (Term s (PDataRecord '[]))
@@ -144,12 +164,34 @@ instance DerivePlutusType PLiquidityHolderAct where
 
 
 pliquidityTokenHolder :: Term s (PAsData PCurrencySymbol :--> PAsData PCurrencySymbol :--> PData :--> PData :--> PScriptContext :--> POpaque)
-pliquidityTokenHolder = phoistAcyclic $ plam $ \rewardsCS commitCS _dat redeemer ctx ->
+pliquidityTokenHolder = phoistAcyclic $ plam $ \rewardsCS commitCS datum redeemer ctx ->
   let red = punsafeCoerce @_ @_ @PLiquidityHolderAct redeemer 
+      dat = punsafeCoerce @_ @_ @PLiquidityHolderDatum datum 
    in pmatch red $ \case 
-        PAddCollected _ -> popaque $ paddCollected # commitCS # ctx 
-        PForwardToV1 _ -> perror -- TODO
+        PAddCollected _ -> paddCollected # pfromData (pfield @"totalCommitted" # dat) # commitCS # ctx 
+        PForwardToV1 _ -> pforwardToProxy # pfromData (pfield @"totalCommitted" # dat) # ctx 
         PBeginRewards _ -> pbeginRewards # rewardsCS # ctx
+
+pforwardToProxy :: Term s (PInteger :--> PScriptContext :--> POpaque)
+pforwardToProxy = phoistAcyclic $ plam $ \ownInputTotalCollected ctx -> P.do 
+  ctxF <- pletFields @'["txInfo"] ctx 
+  infoF <- pletFields @'["outputs", "datums"] ctxF.txInfo
+  let proxyOutput = 
+        ( pmustFind @PBuiltinList
+            # plam (\out -> pfield @"address" # out #== pconstantData (Address (ScriptCredential "proxy") Nothing))
+            # infoF.outputs 
+        )
+  proxyOutputF <- pletFields @["value", "datum"] proxyOutput
+  (POutputDatumHash ((pfield @"datumHash" #) -> datumHash)) <- pmatch proxyOutputF.datum 
+  let proxyDatum =  punsafeCoerce @_ @_ @PLiquidityHolderDatum $ pmustFindDatum # datumHash # infoF.datums
+  proxyDatumF <- pletFields @["totalCommitted", "totalLPTokens", "lpTokenName"] proxyDatum
+  let forwardToProxyChecks = 
+          pand'List
+            [ proxyDatumF.totalCommitted #== ownInputTotalCollected
+            , pfromData proxyDatumF.totalLPTokens #== 0
+            , pfromData proxyDatumF.lpTokenName #== pconstant ""
+            ] 
+  pif forwardToProxyChecks (popaque $ pconstant ()) perror 
 
 pbeginRewards :: Term s (PAsData PCurrencySymbol :--> PScriptContext :--> POpaque)
 pbeginRewards = phoistAcyclic $ plam $ \rewardsCS ctx -> unTermCont $ do 
@@ -173,15 +215,15 @@ pbeginRewards = phoistAcyclic $ plam $ \rewardsCS ctx -> unTermCont $ do
   pure $
     pif ( pfromData rewardTkMinted #== 1 #&& pfromData thkMinted #== -1) (popaque $ pconstant ()) perror 
 
-paddCollected :: Term s (PAsData PCurrencySymbol :--> PScriptContext :--> POpaque)
-paddCollected = phoistAcyclic $ plam $ \commitCS ctx -> unTermCont $ do 
+paddCollected :: Term s (PInteger :--> PAsData PCurrencySymbol :--> PScriptContext :--> POpaque)
+paddCollected = phoistAcyclic $ plam $ \ownInputTotalCommitted commitCS ctx -> unTermCont $ do 
   ctxF <- pletFieldsC @'["txInfo", "purpose"] ctx 
   infoF <- pletFieldsC @'["inputs", "outputs", "mint"] ctxF.txInfo
   mintedValue <- pletC (pnormalize # infoF.mint) 
   PSpending ((pfield @"_0" #) -> ownRef) <- pmatchC ctxF.purpose
   txInputs <- pletC infoF.inputs
   let ownInput = ptryOwnInput # txInputs # ownRef
-  ownInputF <- pletFieldsC @'["value", "address", "datum"] ownInput
+  ownInputF <- pletFieldsC @'["value", "address"] ownInput
   PScriptCredential ((pfield @"_0" #) -> ownValHash) <- pmatchC (pfield @"credential" # ownInputF.address)
 
   let commitInp = 
@@ -198,8 +240,7 @@ paddCollected = phoistAcyclic $ plam $ \commitCS ctx -> unTermCont $ do
   ownOutputF <- pletFieldsC @'["value", "datum"] ownOutput  
   
   (POutputDatum ownOutDatum) <- pmatchC ownOutputF.datum
-  ownOutDatF <- pletFieldsC @'["totalCommitted"] (pfromPDatum @PLiquidityHolderDatum # (pfield @"outputDatum" # ownOutDatum))
- 
+  ownOutDatF <- pletFieldsC @'["totalCommitted", "totalLPTokens", "lpTokenName"] (pfromPDatum @PLiquidityHolderDatum # (pfield @"outputDatum" # ownOutDatum))
   let commitTkPair = (pheadSingleton #$ ptryLookupValue # commitCS # mintedValue)
       commitTkBurned = (pfromData $ psndBuiltin # commitTkPair) #== -1
       collectedAda = Value.psingleton # padaSymbol # padaToken # commitDatF.committed
@@ -207,7 +248,10 @@ paddCollected = phoistAcyclic $ plam $ \commitCS ctx -> unTermCont $ do
           pand'List
             [ commitTkBurned 
             , pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
-            , ownOutDatF.totalCommitted #== commitDatF.committed 
+            , pfromData ownOutDatF.totalCommitted #== pfromData commitDatF.committed
+            , pfromData ownOutDatF.totalLPTokens #== 0 
+            , pfromData ownOutDatF.lpTokenName #== pconstant ""
+            , ownInputTotalCommitted #== 0
             ] 
   pure $
     pif addCollectedChecks (popaque $ pconstant ()) perror 
