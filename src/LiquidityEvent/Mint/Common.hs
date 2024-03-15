@@ -186,13 +186,13 @@ makeCommon cfg ctx' = do
           , nodeInputs
           , nodeOutputs
           }
-
+  vrange <- tcont . plet $ pfromData info.validRange
   pure
     ( common
     , info.inputs
     , info.outputs
     , info.signatories
-    , info.validRange
+    , vrange
     )
 
 pInit :: forall (s :: S). Config -> PPriceDiscoveryCommon s -> Term s PUnit

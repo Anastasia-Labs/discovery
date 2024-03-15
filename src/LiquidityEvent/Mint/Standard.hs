@@ -31,7 +31,7 @@ import PriceDiscoveryEvent.Mint.Helpers (
   hasUtxoWithRef,
  )
 import Plutarch.Prelude
-import PriceDiscoveryEvent.Utils (pand'List, passert, pcond)
+import PriceDiscoveryEvent.Utils (pand'List, passert, pcond, pisFinite)
 import Types.LiquiditySet (PLiquidityConfig (..), PLiquidityNodeAction (..))
 
 --------------------------------
@@ -65,7 +65,8 @@ mkLiquidityNodeMP cfg = plam $ \discConfig redm ctx -> P.do
       act <- pletFields @'["keyToInsert", "coveringNode"] action
       let insertChecks =
             pand'List
-              [ pafter # (pfield @"discoveryDeadline" # discConfig) # vrange
+              [ pisFinite # vrange
+              , pafter # (pfield @"discoveryDeadline" # discConfig) # vrange
               , pelem # act.keyToInsert # sigs
               ]
       pif insertChecks (pInsert cfg common # act.keyToInsert # act.coveringNode) perror
@@ -73,6 +74,7 @@ mkLiquidityNodeMP cfg = plam $ \discConfig redm ctx -> P.do
       configF <- pletFields @'["discoveryDeadline"] discConfig
       act <- pletFields @'["keyToRemove", "coveringNode"] action
       discDeadline <- plet configF.discoveryDeadline
+      passert "vrange not finite" (pisFinite # vrange)
       pcond 
         [ ((pbefore # discDeadline # vrange), (pClaim cfg common outs sigs # act.keyToRemove))
         , ((pafter # discDeadline # vrange), (pRemove cfg common vrange discConfig outs sigs # act.keyToRemove # act.coveringNode))

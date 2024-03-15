@@ -27,7 +27,7 @@ import Plutarch.Extra.ScriptContext (pfromPDatum)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
-import PriceDiscoveryEvent.Utils (passert, pcontainsCurrencySymbols, pfindCurrencySymbolsByTokenPrefix, pheadSingleton, ptryOwnInput, ptryOwnOutput, phasCS)
+import PriceDiscoveryEvent.Utils (passert, pcontainsCurrencySymbols, pfindCurrencySymbolsByTokenPrefix, pheadSingleton, ptryOwnInput, ptryOwnOutput, phasCS, pisFinite)
 import Types.Constants (rewardFoldTN)
 import Types.LiquiditySet (PLBELockConfig (..), PLiquiditySetNode (..), PLNodeAction (..))
 
@@ -52,14 +52,13 @@ pLiquiditySetValidator cfg prefix = plam $ \discConfig dat redmn ctx' ->
    in 
     pmatch redeemer $ \case
       PLRewardFoldAct _ ->
-        (popaque $ pconstant ())
-        -- let stakeCerts = pfield @"wdrl" # (pfield @"txInfo" # ctx')
-        --     stakeScript = pfromData $ pfield @"rewardCred" # discConfig 
-        --  in pmatch (AssocMap.plookup # stakeScript # stakeCerts) $ \case 
-        --       PJust _ -> (popaque $ pconstant ()) 
-        --       PNothing -> perror 
+        let stakeCerts = pfield @"wdrl" # (pfield @"txInfo" # ctx')
+            stakeScript = pfromData $ pfield @"rewardCred" # discConfig 
+         in pmatch (AssocMap.plookup # stakeScript # stakeCerts) $ \case 
+              PJust _ -> (popaque $ pconstant ()) 
+              PNothing -> perror 
       PLCommitFoldAct _ ->
-        let stakeCerts = ptrace "collecting" $ pfield @"wdrl" # (pfield @"txInfo" # ctx')
+        let stakeCerts = pfield @"wdrl" # (pfield @"txInfo" # ctx')
             stakeScript = pfromData $ pfield @"commitCred" # discConfig 
         in pmatch (AssocMap.plookup # stakeScript # stakeCerts) $ \case 
             PJust _ -> (popaque $ pconstant ()) 
@@ -99,6 +98,7 @@ pLiquiditySetValidator cfg prefix = plam $ \discConfig dat redmn ctx' ->
             passert "Cannot reduce ada value" (plovelaceValueOf # ownInputF.value #< plovelaceValueOf # ownOutputF.value + 10_000_000)
             passert "No tokens minted" (pfromData info.mint #== mempty)
             passert "deadline passed" ((pafter # (pfromData configF.discoveryDeadline - 86_400) # info.validRange))
+            passert "vrange not finite" (pisFinite # info.validRange)
             (popaque $ pconstant ()) 
         
 -- TODO PlaceHolder # This contribution holds only the minimum amount of Ada + the FoldingFee, it cannot be updated. It cannot be removed until the reward fold has completed.

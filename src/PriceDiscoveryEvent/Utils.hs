@@ -27,7 +27,10 @@ import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Api.V1 (AmountGuarantees(..))
 import qualified Plutarch.Api.V1.Value as Value
-
+import Plutarch.Api.V2 (PInterval)
+import Plutarch.Api.V1 (PPOSIXTime)
+import Plutarch.Api.V2 (PExtended(PFinite))
+import Plutarch.Internal
 data PTriple (a :: PType) (b :: PType) (c :: PType) (s :: S)
   = PTriple (Term s a) (Term s b) (Term s c)
   deriving stock (Generic)
@@ -698,3 +701,13 @@ infix 4 #>=
 (#/=) :: (PEq t) => Term s t -> Term s t -> Term s PBool
 a #/= b = pnot # (a #== b)
 infix 4 #/=
+
+pisFinite :: Term s (PInterval PPOSIXTime :--> PBool)
+pisFinite = plam $ \i -> 
+  let isFiniteFrom = pmatch (pfield @"_0" # (pfield @"from" # i)) $ \case 
+        PFinite _ -> pconstant True 
+        _ -> pconstant False
+      isFiniteTo = pmatch (pfield @"_0" # (pfield @"to" # i)) $ \case 
+        PFinite _ -> pconstant True 
+        _ -> pconstant False
+   in pand' # isFiniteFrom # isFiniteTo
