@@ -67,7 +67,7 @@ import PriceDiscoveryEvent.Utils (
   ptryOwnInput,
   ptryOwnOutput,
   pvalueOfOne,
-  (#>), ptxSignedByPkh, pfoldl2, pvalueOfOneScott, pcountScriptInputs, pfindCurrencySymbolsByTokenName,
+  (#>), ptxSignedByPkh, pfoldl2, pvalueOfOneScott, pcountScriptInputs, pfindCurrencySymbolsByTokenName, pmustFind,
  )
 import Types.Classes
 import Types.Constants (commitFoldTN, minAda, nodeAda, poriginNodeTN, rewardFoldTN, projectTokenHolderTN, foldingFee)
@@ -472,19 +472,17 @@ pmintRewardFoldPolicyW = phoistAcyclic $
     tkPair <- pletC (pheadSingleton # tkPairs)
     
     txInputs <- pletC info.inputs
-
+    tokenHolderCS <- pletC $ rewardConfigF.tokenHolderCS
     let nodeRefInput = pfield @"resolved" #$          
-          pheadSingleton
-            # ( pfilter @PBuiltinList
+          pmustFind @PBuiltinList 
                   # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # rewardConfigF.nodeCS # poriginNodeTN #== 1)
                   # info.referenceInputs
-              )
+              
         projectInput = pfield @"resolved" #$          
-          pheadSingleton
-            # ( pfilter @PBuiltinList
-                  # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # rewardConfigF.tokenHolderCS # projectTokenHolderTN #== 1)
+          pmustFind @PBuiltinList 
+                  # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # tokenHolderCS # projectTokenHolderTN #== 1)
                   # txInputs
-              )
+              
         numMinted = psndBuiltin # tkPair
         foldOutput = ptryOutputToAddress # info.outputs # rewardConfigF.rewardScriptAddr
 
@@ -518,7 +516,7 @@ pmintRewardFoldPolicyW = phoistAcyclic $
             , totalProjectTkns #== projectInpDatF.totalLPTokens
             , pforgetPositive foldOutputValue #== collectedAda <> projectTokens <> rfoldToken
             , projectInpDatF.totalCommitted #== foldOutDatumF.totalCommitted 
-            , pvalueOf # mintedValue # rewardConfigF.tokenHolderCS # projectTokenHolderTN #== -1
+            , pvalueOf # mintedValue # tokenHolderCS # projectTokenHolderTN #== -1
             ]
     pure $
       pif

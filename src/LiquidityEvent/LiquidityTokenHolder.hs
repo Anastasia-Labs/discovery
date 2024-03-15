@@ -66,8 +66,9 @@ import PriceDiscoveryEvent.Utils (
   pfindCurrencySymbolsByTokenName,
   ptryOwnInput, pmustFind, ptryOwnOutput
  )
-import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum, PProxyTokenHolderDatum )
+import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum(..), PProxyTokenHolderDatum )
 import PriceDiscoveryEvent.MultiFoldLiquidity (PLiquidityFoldDatum)
+import Plutarch.Builtin (pforgetData)
 
 data PLiquidityHolderMintAct (s :: S)
   = PMintHolder (Term s (PDataRecord '[]))
@@ -111,16 +112,22 @@ pmintTokenHolder = phoistAcyclic $
     PMinting policy <- pmatchC contextFields.purpose
     ownPolicyId <- pletC $ pfield @"_0" # policy
 
-    info <- pletFieldsC @'["inputs","mint"] contextFields.txInfo
+    info <- pletFieldsC @'["inputs", "outputs", "mint"] contextFields.txInfo
     tkPairs <- pletC $ ptryLookupValue # ownPolicyId # (pnormalize # info.mint)
     tkPair <- pletC (pheadSingleton # tkPairs)
+
+    let holderOutput = pmustFind @PBuiltinList # plam(\out -> 1 #<= pvalueOf # (pfield @"value" # out) # pfromData ownPolicyId # projectTokenHolderTN) # info.outputs 
+    POutputDatum ((pfield @"outputDatum" #) -> holderOutputDatum) <- pmatchC (pfield @"datum" # holderOutput)
+
     let numMinted = psndBuiltin # tkPair 
         tkMinted = pfstBuiltin # tkPair 
+        expectedDatum = pforgetData $ pdata $ pcon $ PLiquidityHolderDatum $ pdcons @"lpTokenName" # (pconstantData "") #$ pdcons @"totalCommitted" # pconstantData 0 #$ pdcons @"totalLPTokens" # pconstantData 0 # pdnil 
         mintChecks = 
           pand'List
             [ pfromData numMinted #== 1
             , projectTokenHolderTN #== pfromData tkMinted
             , phasInput # info.inputs # oref 
+            , expectedDatum #== pfromData (pto holderOutputDatum)
             ] 
     pure $
       pif ( mintChecks ) (pconstant ()) perror 
