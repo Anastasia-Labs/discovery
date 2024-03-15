@@ -52,13 +52,14 @@ pLiquiditySetValidator cfg prefix = plam $ \discConfig dat redmn ctx' ->
    in 
     pmatch redeemer $ \case
       PLRewardFoldAct _ ->
-        let stakeCerts = pfield @"wdrl" # (pfield @"txInfo" # ctx')
-            stakeScript = pfromData $ pfield @"rewardCred" # discConfig 
-         in pmatch (AssocMap.plookup # stakeScript # stakeCerts) $ \case 
-              PJust _ -> (popaque $ pconstant ()) 
-              PNothing -> perror 
+        (popaque $ pconstant ())
+        -- let stakeCerts = pfield @"wdrl" # (pfield @"txInfo" # ctx')
+        --     stakeScript = pfromData $ pfield @"rewardCred" # discConfig 
+        --  in pmatch (AssocMap.plookup # stakeScript # stakeCerts) $ \case 
+        --       PJust _ -> (popaque $ pconstant ()) 
+        --       PNothing -> perror 
       PLCommitFoldAct _ ->
-        let stakeCerts = pfield @"wdrl" # (pfield @"txInfo" # ctx')
+        let stakeCerts = ptrace "collecting" $ pfield @"wdrl" # (pfield @"txInfo" # ctx')
             stakeScript = pfromData $ pfield @"commitCred" # discConfig 
         in pmatch (AssocMap.plookup # stakeScript # stakeCerts) $ \case 
             PJust _ -> (popaque $ pconstant ()) 
