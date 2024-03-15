@@ -64,8 +64,8 @@ PlutusTx.unstableMakeIsData ''LNodeAction
 data PLNodeAction (s :: S)
   = PLLinkedListAct (Term s (PDataRecord '[]))
   | PLModifyCommitment (Term s (PDataRecord '[]))
-  | PLCommitFoldAct (Term s (PDataRecord '["commitIdx" ':= PInteger]))
-  | PLRewardFoldAct (Term s (PDataRecord '["rewardsIdx" ':= PInteger]))
+  | PLCommitFoldAct (Term s (PDataRecord '[]))
+  | PLRewardFoldAct (Term s (PDataRecord '[]))
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PShow)
 
@@ -95,7 +95,7 @@ data PLBELockConfig (s :: S)
                ]
           )
       )
-  deriving stock (Generic)
+  deriving stock (Generic) 
   deriving anyclass (PlutusType, PIsData, PDataFields, PEq)
 
 instance DerivePlutusType PLBELockConfig where type DPTStrat _ = PlutusTypeData

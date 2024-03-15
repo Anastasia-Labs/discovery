@@ -118,7 +118,7 @@ parseNodeOutputUtxo cfg = phoistAcyclic $
     passert "node is not ordered" $ validNode # datum
     passert "Incorrect token name" $ nodeKey #== datumKey
     passert "Does not hold nodeAda" $
-      plovelaceValueOf # value #>= minCommitment
+      plovelaceValueOf # value #>= 5_000_000
     pcon (PPair value datum)
 
 makeCommon ::
