@@ -356,7 +356,7 @@ pfoldNodes = phoistAcyclic $
             ( PCollectionFoldState
                 (toScott $ pfromData currFoldNodeF.key)
                 (toScott $ pfromData currFoldNodeF.next)
-                (pfromData datF.committed)
+                0
                 1 
             )
         foldOutDatum = pfromPDatum @PLiquidityFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
@@ -368,7 +368,7 @@ pfoldNodes = phoistAcyclic $
     ptraceC "finalChecks"
     pguardC "key" $ currFoldNodeF.key #== newFoldNodeF.key
     pguardC "next" $ newCommitFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
-    pguardC "committed" $ pfromData newFoldDatumF.committed #== newCommitFoldState.committed
+    pguardC "committed" $ pfromData newFoldDatumF.committed #== (pfromData datF.committed) + newCommitFoldState.committed
     pguardC "owner" $ newFoldDatumF.owner #== datF.owner
     pguardC "value" $ pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
     pguardC "num" $ (pcountScriptInputs # txInputs) #== newCommitFoldState.num
