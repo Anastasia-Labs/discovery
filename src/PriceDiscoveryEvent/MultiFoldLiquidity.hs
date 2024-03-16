@@ -363,19 +363,28 @@ pfoldNodes = phoistAcyclic $
     newFoldDatumF <- pletFieldsC @'["currNode", "committed", "owner"] foldOutDatum
     newFoldNodeF <- pletFieldsC @'["key", "next"] newFoldDatumF.currNode
     newCommitFoldState <- pmatchC $ pfoldBijectiveUTxOs (pisLiquiditySuccessor $ pfromData nodeCS) commitFoldState txInputs info.outputs nodeInputIndices nodeOutIndices
-    ptraceC "finalChecks" 
     let collectedAda = Value.psingleton # padaSymbol # padaToken # newCommitFoldState.committed 
-        foldChecks =
-          pand'List
-            [ currFoldNodeF.key #== newFoldNodeF.key
-            , newCommitFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
-            , pfromData newFoldDatumF.committed #== newCommitFoldState.committed
-            , newFoldDatumF.owner #== datF.owner 
-            , pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
-            , (pcountScriptInputs # txInputs) #== newCommitFoldState.num 
-            ]
-    pure $
-      pif foldChecks (popaque (pconstant ())) perror
+
+    ptraceC "finalChecks"
+    pguardC "key" $ currFoldNodeF.key #== newFoldNodeF.key
+    pguardC "next" $ newCommitFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
+    pguardC "committed" $ pfromData newFoldDatumF.committed #== newCommitFoldState.committed
+    pguardC "owner" $ newFoldDatumF.owner #== datF.owner
+    pguardC "value" $ pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
+    pguardC "num" $ (pcountScriptInputs # txInputs) #== newCommitFoldState.num
+    pure $ popaque $ pconstant ()
+    -- let collectedAda = Value.psingleton # padaSymbol # padaToken # newCommitFoldState.committed 
+    --     foldChecks =
+    --       pand'List
+    --         [ currFoldNodeF.key #== newFoldNodeF.key
+    --         , newCommitFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
+    --         , pfromData newFoldDatumF.committed #== newCommitFoldState.committed
+    --         , newFoldDatumF.owner #== datF.owner 
+    --         , pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
+    --         , (pcountScriptInputs # txInputs) #== newCommitFoldState.num 
+    --         ]
+    -- pure $
+    --   pif foldChecks (popaque (pconstant ())) perror
 
 data PDistributionFoldMintConfig (s :: S)
   = PDistributionFoldMintConfig
