@@ -75,6 +75,7 @@ import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum )
 import Types.DiscoverySet (PNodeKey(..), PNodeKeyState(..))
 
 import PriceDiscoveryEvent.Utils (pcountOfUniqueTokens)
+import Plutarch.Extra.TermCont (pguardC)
 
 data PLiquidityFoldMintConfig (s :: S)
   = PLiquidityFoldMintConfig
@@ -302,19 +303,19 @@ pisLiquiditySuccessor nodeCS accNode inputNode outputNode = unTermCont $ do
 
   -- outputNodeValue <- pletC $ nodeOutputF.value 
   nodeCommitment <- pletC $ (plovelaceValueOf # inputNodeValue) - 5_000_000
-
   let nodeKey = toScott $ pfromData inputNodeDatumF.key
       owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) 
-      successorChecks = 
-        pand'List 
-          [ (accNodeF.next #== nodeKey)
-          , (inputNodeValue <> owedAdaValue) #== pforgetPositive outputNodeF.value
-          , outputNodeF.address #== inputNodeF.address 
-          , outputNodeDatumF.key #== inputNodeDatumF.key
-          , outputNodeDatumF.next #== inputNodeDatumF.next
-          , outputNodeDatumF.commitment #== nodeCommitment
-          , pvalueOfOneScott # nodeCS # inputNodeValue
-          ]
+      -- successorChecks = 
+      --   pand'List 
+      --     [ (accNodeF.next #== nodeKey)
+      --     , (inputNodeValue <> owedAdaValue) #== pforgetPositive outputNodeF.value
+      --     , outputNodeF.address #== inputNodeF.address 
+      --     , outputNodeDatumF.key #== inputNodeDatumF.key
+      --     , outputNodeDatumF.next #== inputNodeDatumF.next
+      --     , outputNodeDatumF.commitment #== nodeCommitment
+      --     , pvalueOfOneScott # nodeCS # inputNodeValue
+      --     ]
+      successorChecks = pconstant True
       newAccState =
         pcon @PCollectionFoldState
           accNodeF
@@ -322,6 +323,11 @@ pisLiquiditySuccessor nodeCS accNode inputNode outputNode = unTermCont $ do
             , committed = accNodeF.committed + nodeCommitment
             , num = accNodeF.num + 1
             }
+  pguardC "fnext = nodeKey" (accNodeF.next #== nodeKey)
+  pguardC "baz" (inputNodeValue <> owedAdaValue) #== pforgetPositive outputNodeF.value
+  pguardC "adr" (outputNodeF.address #== inputNodeF.address)
+  pguardC "cng" outputNodeDatumF.commitment #== nodeCommitment
+  pguardC "has" (pvalueOfOneScott # nodeCS # inputNodeValue)
   pure $ pif successorChecks newAccState perror
 
 pfoldNodes :: Term s (PAsData PCurrencySymbol :--> PBuiltinList (PAsData PInteger) :--> PBuiltinList (PAsData PInteger) :--> PLiquidityFoldDatum :--> PScriptContext :--> POpaque)
@@ -357,7 +363,7 @@ pfoldNodes = phoistAcyclic $
     newFoldDatumF <- pletFieldsC @'["currNode", "committed", "owner"] foldOutDatum
     newFoldNodeF <- pletFieldsC @'["key", "next"] newFoldDatumF.currNode
     newCommitFoldState <- pmatchC $ pfoldBijectiveUTxOs (pisLiquiditySuccessor $ pfromData nodeCS) commitFoldState txInputs info.outputs nodeInputIndices nodeOutIndices
-
+  
     let collectedAda = Value.psingleton # padaSymbol # padaToken # newCommitFoldState.committed 
         foldChecks =
           pand'List
