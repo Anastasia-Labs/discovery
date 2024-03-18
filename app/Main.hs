@@ -47,6 +47,7 @@ import LiquidityEvent.Validator (pLiquiditySetValidator, pLiquidityGlobalLogicW)
 import LiquidityEvent.ProxyTokenHolderV1 qualified as ProxyTokenHolderV1
 import AlwaysFails (pAlwaysFails, pAuthMint)
 import System.IO
+import LiquidityEvent.LiquidityTokenHolder (pmintLiquidityTokenHolder, pliquidityTokenHolder)
 
 encodeSerialiseCBOR :: Script -> Text
 encodeSerialiseCBOR = Text.decodeUtf8 . Base16.encode . CBOR.serialize' . serialiseScript
@@ -94,4 +95,5 @@ main = do
   writePlutusScript "Distribute Fold Validator" "./compiledLiquidity/distributionFoldValidator.json" LiquidityFold.prewardFoldValidatorW
   writePlutusScript "Distribute Fold Mint" "./compiledLiquidity/distributionRewardFoldMint.json" LiquidityFold.pmintRewardFoldPolicyW
   writePlutusScript "Proxy Token Holder V1" "./compiledLiquidity/proxyTokenHolderV1.json" ProxyTokenHolderV1.pproxyTokenHolderV1
-
+  writePlutusScript "Liquidity Token Holder Mint" "./compiledLiquidity/liquidityTokenHolderMint.json" pmintLiquidityTokenHolder
+  writePlutusScript "Liquidity Token Holder Validator" "./compiledLiquidity/liquidityTokenHolderValidator.json" pliquidityTokenHolder

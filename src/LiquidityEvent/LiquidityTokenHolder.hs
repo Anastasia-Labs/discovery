@@ -64,7 +64,7 @@ import PriceDiscoveryEvent.Utils (
   pheadSingleton,
   ptryLookupValue,
   pfindCurrencySymbolsByTokenName,
-  ptryOwnInput, pmustFind, ptryOwnOutput
+  ptryOwnInput, pmustFind, ptryOwnOutput, (#>)
  )
 import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum(..), PProxyTokenHolderDatum(..) )
 import PriceDiscoveryEvent.MultiFoldLiquidity (PLiquidityFoldDatum)
@@ -162,6 +162,8 @@ data PLiquidityHolderAct (s :: S)
 instance DerivePlutusType PLiquidityHolderAct where
   type DPTStrat _ = PlutusTypeData
 
+proxyTokenHolderAddress :: Term _ PAddress
+proxyTokenHolderAddress = pfromData $ pconstantData (Address (ScriptCredential "2379345db633a01462240efca6a4bb11d821a8e83ef6dc58d816a2cf") Nothing)
 
 pliquidityTokenHolder :: Term s (PAsData PCurrencySymbol :--> PAsData PCurrencySymbol :--> PData :--> PData :--> PScriptContext :--> POpaque)
 pliquidityTokenHolder = phoistAcyclic $ plam $ \rewardsCS commitCS datum redeemer ctx ->
@@ -169,27 +171,35 @@ pliquidityTokenHolder = phoistAcyclic $ plam $ \rewardsCS commitCS datum redeeme
       dat = punsafeCoerce @_ @_ @PLiquidityHolderDatum datum 
    in pmatch red $ \case 
         PAddCollected _ -> paddCollected # pfromData (pfield @"totalCommitted" # dat) # commitCS # ctx 
-        PForwardToV1 _ -> pforwardToProxy # pfromData (pfield @"totalCommitted" # dat) # ctx 
+        PForwardToV1 _ -> pforwardToProxy # dat # ctx 
         PBeginRewards _ -> pbeginRewards # rewardsCS # ctx
 
-pforwardToProxy :: Term s (PInteger :--> PScriptContext :--> POpaque)
-pforwardToProxy = phoistAcyclic $ plam $ \ownInputTotalCollected ctx -> P.do 
-  ctxF <- pletFields @'["txInfo"] ctx 
-  infoF <- pletFields @'["outputs", "datums"] ctxF.txInfo
+pforwardToProxy :: Term s (PLiquidityHolderDatum :--> PScriptContext :--> POpaque)
+pforwardToProxy = phoistAcyclic $ plam $ \ownDatum ctx -> P.do 
+  ctxF <- pletFields @'["txInfo", "purpose"] ctx 
+  infoF <- pletFields @'["inputs", "outputs", "datums"] ctxF.txInfo
+  PSpending ((pfield @"_0" #) -> ownRef) <- pmatch ctxF.purpose
+  let ownInput = ptryOwnInput # infoF.inputs # ownRef
+  ownInputF <- pletFields @'["address", "value"] ownInput
+
+  ownDatF <- pletFields @'["totalCommitted", "totalLPTokens", "lpTokenName"] ownDatum
   let proxyOutput = 
         ( pmustFind @PBuiltinList
-            # plam (\out -> pfield @"address" # out #== pconstantData (Address (ScriptCredential "proxy") Nothing))
+            # plam (\out -> pfield @"address" # out #== proxyTokenHolderAddress)
             # infoF.outputs 
         )
   proxyOutputF <- pletFields @["value", "datum"] proxyOutput
   (POutputDatumHash ((pfield @"datumHash" #) -> datumHash)) <- pmatch proxyOutputF.datum 
-  let proxyDatum =  punsafeCoerce @_ @_ @PLiquidityHolderDatum $ pmustFindDatum # datumHash # infoF.datums
-  proxyDatumF <- pletFields @["totalCommitted", "totalLPTokens", "lpTokenName"] proxyDatum
+  let proxyDatum =  punsafeCoerce @_ @_ @PProxyTokenHolderDatum $ pmustFindDatum # datumHash # infoF.datums
+  proxyDatumF <- pletFields @["totalCommitted", "returnAddress"] proxyDatum
   let forwardToProxyChecks = 
           pand'List
-            [ proxyDatumF.totalCommitted #== ownInputTotalCollected
-            , pfromData proxyDatumF.totalLPTokens #== 0
-            , pfromData proxyDatumF.lpTokenName #== pconstant ""
+            [ ptraceIfFalse "cgz" $ pfromData ownDatF.totalCommitted #> pconstant 0
+            , ptraceIfFalse "retAddr" $ proxyDatumF.returnAddress #== ownInputF.address
+            , ptraceIfFalse "totCom" $ proxyDatumF.totalCommitted #== ownDatF.totalCommitted
+            , ptraceIfFalse "totLP" $ pfromData ownDatF.totalLPTokens #== pconstant 0
+            , ptraceIfFalse "tn" $ pfromData ownDatF.lpTokenName #== pconstant ""
+            , ptraceIfFalse "val" $ proxyOutputF.value #== ownInputF.value 
             ] 
   pif forwardToProxyChecks (popaque $ pconstant ()) perror 
 
@@ -246,12 +256,12 @@ paddCollected = phoistAcyclic $ plam $ \ownInputTotalCommitted commitCS ctx -> u
       collectedAda = Value.psingleton # padaSymbol # padaToken # commitDatF.committed
       addCollectedChecks = 
           pand'List
-            [ commitTkBurned 
-            , pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
-            , pfromData ownOutDatF.totalCommitted #== pfromData commitDatF.committed
-            , pfromData ownOutDatF.totalLPTokens #== 0 
-            , pfromData ownOutDatF.lpTokenName #== pconstant ""
-            , ownInputTotalCommitted #== 0
+            [ ptraceIfFalse "acburn" commitTkBurned 
+            , ptraceIfFalse "acvalue" $ pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
+            , ptraceIfFalse "actotcom" $ pfromData ownOutDatF.totalCommitted #== pfromData commitDatF.committed
+            , ptraceIfFalse "actotlp" $ pfromData ownOutDatF.totalLPTokens #== 0 
+            , ptraceIfFalse "aclpName" $ pfromData ownOutDatF.lpTokenName #== pconstant ""
+            , ptraceIfFalse "ac" $ ownInputTotalCommitted #== 0
             ] 
   pure $
     pif addCollectedChecks (popaque $ pconstant ()) perror 
