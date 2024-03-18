@@ -306,15 +306,15 @@ pisLiquiditySuccessor nodeCS accNode inputNode outputNode = unTermCont $ do
       owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) 
       successorChecks = 
         pand'List 
-          [ ptrace "n" (accNodeF.next #== nodeKey)
-          , ptrace "v" $ (inputNodeValue <> owedAdaValue) #== pforgetPositive outputNodeF.value
-          , ptrace "a" $ outputNodeF.address #== inputNodeF.address 
-          , ptrace "lsk" $ outputNodeDatumF.key #== inputNodeDatumF.key
-          , ptrace "lsn" $ outputNodeDatumF.next #== inputNodeDatumF.next
-          , ptrace "lsc" $ pfromData outputNodeDatumF.commitment #== nodeCommitment
-          , ptrace "lsc2" $ nodeCommitment #> pconstant 0
-          , ptrace "lsnt" $ pvalueOfOneScott # nodeCS # inputNodeValue
-          , ptrace "lsnh" $ 
+          [ ptraceIfFalse "lsn" (accNodeF.next #== nodeKey)
+          , ptraceIfFalse "lsv" $ (inputNodeValue <> owedAdaValue) #== pforgetPositive outputNodeF.value
+          , ptraceIfFalse "lsa" $ outputNodeF.address #== inputNodeF.address 
+          , ptraceIfFalse "lsk" $ outputNodeDatumF.key #== inputNodeDatumF.key
+          , ptraceIfFalse "lsn" $ outputNodeDatumF.next #== inputNodeDatumF.next
+          , ptraceIfFalse "lsc" $ pfromData outputNodeDatumF.commitment #== nodeCommitment
+          , ptraceIfFalse "lsc2" $ nodeCommitment #> pconstant 0
+          , ptraceIfFalse "lsnt" $ pvalueOfOneScott # nodeCS # inputNodeValue
+          , ptraceIfFalse "lsnh" $ 
               pmatch 
                 inputNodeDatumF.key 
                 ( \case
