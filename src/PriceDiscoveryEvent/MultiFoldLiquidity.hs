@@ -306,14 +306,14 @@ pisLiquiditySuccessor nodeCS accNode inputNode outputNode = unTermCont $ do
       owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) 
       successorChecks = 
         pand'List 
-          [ (accNodeF.next #== nodeKey)
-          , (inputNodeValue <> owedAdaValue) #== pforgetPositive outputNodeF.value
-          , outputNodeF.address #== inputNodeF.address 
-          , outputNodeDatumF.key #== inputNodeDatumF.key
-          , outputNodeDatumF.next #== inputNodeDatumF.next
-          , outputNodeDatumF.commitment #== nodeCommitment
-          , nodeCommitment #> 0
-          , pvalueOfOneScott # nodeCS # inputNodeValue
+          [ ptrace "n" (accNodeF.next #== nodeKey)
+          , ptrace "v" $ (inputNodeValue <> owedAdaValue) #== pforgetPositive outputNodeF.value
+          , ptrace "a" $ outputNodeF.address #== inputNodeF.address 
+          , ptrace "lsk" $ outputNodeDatumF.key #== inputNodeDatumF.key
+          , ptrace "lsn" $ outputNodeDatumF.next #== inputNodeDatumF.next
+          , ptrace "lsc" $ pfromData outputNodeDatumF.commitment #== nodeCommitment
+          , ptrace "lsc2" $ nodeCommitment #> pconstant 0
+          , ptrace "lsnt" $ pvalueOfOneScott # nodeCS # inputNodeValue
           ]
       newAccState =
         pcon @PCollectionFoldState
@@ -358,12 +358,12 @@ pfoldNodes = phoistAcyclic $
     let collectedAda = Value.psingleton # padaSymbol # padaToken # newCommitFoldState.committed 
         foldChecks =
           pand'List
-            [ ptrace"k" $ currFoldNodeF.key #== newFoldNodeF.key
-            , ptrace "n" $ newCommitFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
-            , ptrace "c" $ pfromData newFoldDatumF.committed #== (pfromData datF.committed) + newCommitFoldState.committed
-            , ptrace "o" $ newFoldDatumF.owner #== datF.owner 
-            , ptrace "v" $ pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
-            , ptrace "s" $ (pcountScriptInputs # txInputs) #== newCommitFoldState.num 
+            [ ptraceIfFalse "k" $ currFoldNodeF.key #== newFoldNodeF.key
+            , ptraceIfFalse "n" $ newCommitFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
+            , ptraceIfFalse "c" $ pfromData newFoldDatumF.committed #== (pfromData datF.committed) + newCommitFoldState.committed
+            , ptraceIfFalse "o" $ newFoldDatumF.owner #== datF.owner 
+            , ptraceIfFalse "v" $ pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
+            , ptraceIfFalse "s" $ (pcountScriptInputs # txInputs) #== newCommitFoldState.num 
             ]
     pure $
       pif foldChecks (popaque (pconstant ())) perror
