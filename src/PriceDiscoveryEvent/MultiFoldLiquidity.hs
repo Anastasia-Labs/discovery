@@ -358,12 +358,12 @@ pfoldNodes = phoistAcyclic $
     let collectedAda = Value.psingleton # padaSymbol # padaToken # newCommitFoldState.committed 
         foldChecks =
           pand'List
-            [ currFoldNodeF.key #== newFoldNodeF.key
-            , newCommitFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
-            , pfromData newFoldDatumF.committed #== newCommitFoldState.committed
-            , newFoldDatumF.owner #== datF.owner 
-            , pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
-            , (pcountScriptInputs # txInputs) #== newCommitFoldState.num 
+            [ ptrace"k" $ currFoldNodeF.key #== newFoldNodeF.key
+            , ptrace "n" $ newCommitFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
+            , ptrace "c" $ pfromData newFoldDatumF.committed #== (pfromData datF.committed) + newCommitFoldState.committed
+            , ptrace "o" $ newFoldDatumF.owner #== datF.owner 
+            , ptrace "v" $ pforgetPositive ownOutputF.value #== (pforgetPositive ownInputF.value <> collectedAda)
+            , ptrace "s" $ (pcountScriptInputs # txInputs) #== newCommitFoldState.num 
             ]
     pure $
       pif foldChecks (popaque (pconstant ())) perror
