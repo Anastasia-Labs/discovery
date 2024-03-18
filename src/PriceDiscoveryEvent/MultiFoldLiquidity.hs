@@ -314,6 +314,13 @@ pisLiquiditySuccessor nodeCS accNode inputNode outputNode = unTermCont $ do
           , ptrace "lsc" $ pfromData outputNodeDatumF.commitment #== nodeCommitment
           , ptrace "lsc2" $ nodeCommitment #> pconstant 0
           , ptrace "lsnt" $ pvalueOfOneScott # nodeCS # inputNodeValue
+          , ptrace "lsnh" $ 
+              pmatch 
+                inputNodeDatumF.key 
+                ( \case
+                    PEmpty _ -> pconstant False
+                    PKey _ -> pconstant True
+                )
           ]
       newAccState =
         pcon @PCollectionFoldState
