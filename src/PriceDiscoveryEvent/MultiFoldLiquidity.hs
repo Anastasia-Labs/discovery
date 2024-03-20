@@ -560,11 +560,11 @@ prewardSuccessor nodeCS projectCS projectTN totalProjectTokens totalCommitted st
       nodeKey = toScott $ pfromData nodeInDatF.key
       successorChecks = 
         pand'List 
-          [ (accNodeF.next #== nodeKey)
-          , (inputValue <> owedProjectValue <> owedAdaValue) #== pforgetPositive nodeOutputF.value
-          , nodeOutputF.address #== nodeInputF.address 
-          , nodeOutputF.datum #== nodeInputF.datum 
-          , pvalueOfOneScott # nodeCS # inputValue
+          [ ptraceIfFalse "rck" (accNodeF.next #== nodeKey)
+          , ptraceIfFalse "rcv" $ (inputValue <> owedProjectValue <> owedAdaValue) #== pforgetPositive nodeOutputF.value
+          , ptraceIfFalse "rca" $ nodeOutputF.address #== nodeInputF.address 
+          , ptraceIfFalse "rcd" $ nodeOutputF.datum #== nodeInputF.datum 
+          , ptraceIfFalse "rct" $ pvalueOfOneScott # nodeCS # inputValue
           ]
       accState =
         pcon @PDistributionFoldState
@@ -677,7 +677,7 @@ prewardFoldNodes = phoistAcyclic $ plam $ \rewardConfig inputIdxs outputIdxs dat
           , ptraceIfFalse "own" $ newDatumF.owner #== datF.owner 
           , ptraceIfFalse "rstate" $ newRewardsFoldState.next #== (toScott $ pfromData newFoldNodeF.next)
           , ptraceIfFalse "rval" $ pnormalize # (Value.pforgetPositive ownInputF.value <> Value.psingleton # projCS # projTN # (-newRewardsFoldState.owedProjectTkns)) #== Value.pforgetPositive ownOutputF.value 
-          , (pcountScriptInputs # txIns) #== newRewardsFoldState.foldCount 
+          , ptraceIfFalse "rsco" $ (pcountScriptInputs # txIns) #== newRewardsFoldState.foldCount 
           ]
   pure $
       pif foldChecks (popaque (pconstant ())) perror

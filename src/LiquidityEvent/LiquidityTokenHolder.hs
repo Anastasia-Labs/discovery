@@ -163,7 +163,7 @@ instance DerivePlutusType PLiquidityHolderAct where
   type DPTStrat _ = PlutusTypeData
 
 proxyTokenHolderAddress :: Term _ PAddress
-proxyTokenHolderAddress = pfromData $ pconstantData (Address (ScriptCredential "2379345db633a01462240efca6a4bb11d821a8e83ef6dc58d816a2cf") Nothing)
+proxyTokenHolderAddress = pfromData $ pconstantData (Address (ScriptCredential "a5b38cc78899b452d48205198a5e457b6f92f50866f4abff82bab11a") Nothing)
 
 pliquidityTokenHolder :: Term s (PAsData PCurrencySymbol :--> PAsData PCurrencySymbol :--> PData :--> PData :--> PScriptContext :--> POpaque)
 pliquidityTokenHolder = phoistAcyclic $ plam $ \rewardsCS commitCS datum redeemer ctx ->
