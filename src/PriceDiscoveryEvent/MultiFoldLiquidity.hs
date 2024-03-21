@@ -520,8 +520,7 @@ pmintRewardFoldPolicyW = phoistAcyclic $
     lpTokenCS <- pletC rewardConfigF.lpCS
     lpTokenName <- pletC projectInpDatF.lpTokenName 
     foldOutputValue <- pletC foldOutputF.value
-    let collectedAda = Value.psingleton # padaSymbol # padaToken # (projectInpDatF.totalCommitted + minAda)
-        projectTokens = Value.psingleton # lpTokenCS # lpTokenName # totalProjectTkns
+    let projectTokens = Value.psingleton # lpTokenCS # lpTokenName # totalProjectTkns
         rfoldToken = Value.psingleton # pfromData ownPolicyId # rewardFoldTN # 1
         foldInitChecks =
           pand'List
@@ -530,7 +529,7 @@ pmintRewardFoldPolicyW = phoistAcyclic $
             , ptraceIfFalse "rftpt1" $ totalProjectTkns #== pvalueOf # foldOutputValue # lpTokenCS # lpTokenName
             , ptraceIfFalse "rftpt2" $ totalProjectTkns #== projectInpDatF.totalLPTokens
             , ptraceIfFalse "rftpt3" $ totalProjectTkns #>= 1
-            , ptraceIfFalse "rfv" $ pforgetPositive foldOutputValue #== collectedAda <> projectTokens <> rfoldToken
+            , ptraceIfFalse "rfv" $ pforgetPositive (pnoAdaValue # foldOutputValue) #== projectTokens <> rfoldToken
             , ptraceIfFalse "rfc" $ projectInpDatF.totalCommitted #== foldOutDatumF.totalCommitted 
             , ptraceIfFalse "rfbpth" $ pvalueOf # mintedValue # tokenHolderCS # projectTokenHolderTN #== -1
             ]
