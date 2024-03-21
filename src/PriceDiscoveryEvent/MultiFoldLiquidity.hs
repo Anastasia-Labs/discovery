@@ -578,7 +578,7 @@ prewardSuccessor nodeCS projectCS projectTN totalProjectTokens totalCommitted st
       successorChecks = 
         pand'List 
           [ ptraceIfFalse "rck" (accNodeF.next #== nodeKey)
-          , ptraceIfFalse ("rcv" <> (pshow nodeOutputF.value)) $ (inputValue <> owedProjectValue <> owedAdaValue) #== pforgetPositive nodeOutputF.value
+          , ptraceIfFalse ("rcv" <> (pshow ((inputValue <> owedProjectValue <> owedAdaValue)))) $ (inputValue <> owedProjectValue <> owedAdaValue) #== pforgetPositive nodeOutputF.value
           , ptraceIfFalse "rca" $ nodeOutputF.address #== nodeInputF.address 
           , ptraceIfFalse "rcd" $ nodeOutputF.datum #== nodeInputF.datum 
           , ptraceIfFalse "rct" $ pvalueOfOneScott # nodeCS # inputValue

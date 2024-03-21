@@ -57,7 +57,7 @@ evalT x = evalWithArgsT x []
 
 evalWithArgsT :: ClosedTerm a -> [Data] -> Either Text (Script, ExBudget, [Text])
 evalWithArgsT x args = do
-  cmp <- compile (Config DoTracingAndBinds) x
+  cmp <- compile (Config DoTracing) x
   let (escr, budg, trc) = evalScript $ applyArguments cmp args
   scr <- first (pack . show) escr
   pure (scr, budg, trc)
