@@ -120,11 +120,11 @@ pinitPool = phoistAcyclic $ plam $ \poolTokenCS datum ctx -> unTermCont $ do
       expectedDatum = pcon $ PLiquidityHolderDatum $ pdcons @"lpTokenName" # lpTokenName #$ pdcons @"totalCommitted" # ownDatumF.totalCommitted #$ pdcons @"totalLPTokens" # lpMinted # pdnil 
       validatorChecks = 
         pand'List 
-          [ forwardDatum #== expectedDatum
-          , pforgetPositive (pnoAdaValue # forwardOutputF.value) 
+          [ ptraceIfFalse "pthd" $ forwardDatum #== expectedDatum
+          , ptraceIfFalse "pthlpv" $ pforgetPositive (pnoAdaValue # forwardOutputF.value) 
               #== (Value.psingleton # pfromData pthCS # projectTokenHolderTN # 1 
                 <> Value.psingletonData # poolTokenCS # lpTokenName # lpMinted)
-          , pforgetPositive ( pfield @"value" # poolOutput ) #==
+          , ptraceIfFalse "pthpv" $ pforgetPositive ( pfield @"value" # poolOutput ) #==
               (pforgetPositive ownInputValueNoPTH) <> Value.psingletonData # poolTokenCS # poolTokenName # pdata 1
           ] 
   pure $
