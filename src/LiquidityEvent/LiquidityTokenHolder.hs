@@ -165,17 +165,17 @@ instance DerivePlutusType PLiquidityHolderAct where
 proxyTokenHolderAddress :: Term _ PAddress
 proxyTokenHolderAddress = pfromData $ pconstantData (Address (ScriptCredential "a5b38cc78899b452d48205198a5e457b6f92f50866f4abff82bab11a") Nothing)
 
-pliquidityTokenHolder :: Term s (PAsData PCurrencySymbol :--> PAsData PCurrencySymbol :--> PData :--> PData :--> PScriptContext :--> POpaque)
-pliquidityTokenHolder = phoistAcyclic $ plam $ \rewardsCS commitCS datum redeemer ctx ->
+pliquidityTokenHolder :: Term s (PAsData PAddress :--> PAsData PCurrencySymbol :--> PAsData PCurrencySymbol :--> PData :--> PData :--> PScriptContext :--> POpaque)
+pliquidityTokenHolder = phoistAcyclic $ plam $ \proxyTokenHolderAddress rewardsCS commitCS datum redeemer ctx ->
   let red = punsafeCoerce @_ @_ @PLiquidityHolderAct redeemer 
       dat = punsafeCoerce @_ @_ @PLiquidityHolderDatum datum 
    in pmatch red $ \case 
         PAddCollected _ -> paddCollected # pfromData (pfield @"totalCommitted" # dat) # commitCS # ctx 
-        PForwardToV1 _ -> pforwardToProxy # dat # ctx 
+        PForwardToV1 _ -> pforwardToProxy # pfromData proxyTokenHolderAddress # dat # ctx 
         PBeginRewards _ -> pbeginRewards # rewardsCS # ctx
 
-pforwardToProxy :: Term s (PLiquidityHolderDatum :--> PScriptContext :--> POpaque)
-pforwardToProxy = phoistAcyclic $ plam $ \ownDatum ctx -> P.do 
+pforwardToProxy :: Term s (PAddress :--> PLiquidityHolderDatum :--> PScriptContext :--> POpaque)
+pforwardToProxy = phoistAcyclic $ plam $ \proxyTokenHolderAddress ownDatum ctx -> P.do 
   ctxF <- pletFields @'["txInfo", "purpose"] ctx 
   infoF <- pletFields @'["inputs", "outputs", "datums"] ctxF.txInfo
   PSpending ((pfield @"_0" #) -> ownRef) <- pmatch ctxF.purpose
