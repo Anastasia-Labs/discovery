@@ -20,7 +20,7 @@ import Plutarch.Api.V2 (
   PAddress (..),
   PCurrencySymbol,
   PMintingPolicy,
-  POutputDatum (POutputDatum),
+  POutputDatum (POutputDatum, POutputDatumHash),
   PPOSIXTime (..),
   PPubKeyHash,
   PScriptContext,
@@ -74,7 +74,8 @@ import Types.Classes
 import Types.Constants (commitFoldTN, minAda, nodeAda, poriginNodeTN, rewardFoldTN, projectTokenHolderTN, foldingFee)
 import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum )
 import Types.DiscoverySet (PNodeKey(..), PNodeKeyState(..))
-
+import qualified Plutarch.Api.V1 as V1
+import Plutarch.Builtin (pforgetData)
 import PriceDiscoveryEvent.Utils (pcountOfUniqueTokens)
 
 data PLiquidityFoldMintConfig (s :: S)
@@ -453,6 +454,23 @@ instance DerivePlutusType PDistributionFoldAct where
 deriving anyclass instance
   PTryFrom PData PDistributionFoldAct
 
+pmustFindDatum ::
+  Term s (V1.PDatumHash :--> V1.PMap 'V1.Unsorted V1.PDatumHash V1.PDatum :--> PData)
+pmustFindDatum =
+  phoistAcyclic $ plam $ \datumHash datums ->
+    (pfix #$ plam $ \self datumList ->
+      (pelimList
+        ( \datumTuple datumTuples ->
+            pif
+              (datumHash #== (pfromData (pfstBuiltin # datumTuple)))
+              (pforgetData $ psndBuiltin # datumTuple) 
+              (self # datumTuples)
+        )
+        perror
+        datumList)
+    ) 
+    # (pto datums) 
+
 pmintRewardFoldPolicyW :: Term s (PDistributionFoldMintConfig :--> PMintingPolicy)
 pmintRewardFoldPolicyW = phoistAcyclic $
   plam $ \rewardConfig _redm ctx -> unTermCont $ do
@@ -462,7 +480,7 @@ pmintRewardFoldPolicyW = phoistAcyclic $
     PMinting policy <- pmatchC contextFields.purpose
     ownPolicyId <- pletC $ pfield @"_0" # policy
 
-    info <- pletFieldsC @'["inputs", "referenceInputs", "outputs", "mint"] contextFields.txInfo
+    info <- pletFieldsC @'["inputs", "referenceInputs", "outputs", "mint", "datums"] contextFields.txInfo
 
     mintedValue <- pletC (pnormalize # info.mint)
     let tkPairs = ptryLookupValue # ownPolicyId # mintedValue
@@ -485,8 +503,8 @@ pmintRewardFoldPolicyW = phoistAcyclic $
 
     projectInpF <- pletFieldsC @'["value", "datum"] projectInput
 
-    (POutputDatum projectInpDatum) <- pmatchC projectInpF.datum
-    let projectInpDat = punsafeCoerce @_ @_ @PLiquidityHolderDatum (pfield @"outputDatum" # projectInpDatum)
+    (POutputDatumHash ((pfield @"datumHash" #) -> datumHash)) <- pmatchC projectInpF.datum 
+    let projectInpDat =  punsafeCoerce @_ @_ @PLiquidityHolderDatum $ pmustFindDatum # datumHash # info.datums
     projectInpDatF <- pletFieldsC @'["totalCommitted", "totalLPTokens", "lpTokenName"] projectInpDat
 
     refInputF <- pletFieldsC @'["value", "datum"] nodeRefInput
