@@ -19,7 +19,7 @@ import Data.Text (
 import Data.Text.Encoding qualified as Text
 import Plutarch (
   Config (Config),
-  TracingMode (DoTracing, NoTracing),
+  TracingMode (DoTracing, NoTracing, DoTracingAndBinds),
   compile,
  )
 import Plutarch.Evaluate (
@@ -57,7 +57,7 @@ evalT x = evalWithArgsT x []
 
 evalWithArgsT :: ClosedTerm a -> [Data] -> Either Text (Script, ExBudget, [Text])
 evalWithArgsT x args = do
-  cmp <- compile (Config DoTracing) x
+  cmp <- compile (Config DoTracingAndBinds) x
   let (escr, budg, trc) = evalScript $ applyArguments cmp args
   scr <- first (pack . show) escr
   pure (scr, budg, trc)

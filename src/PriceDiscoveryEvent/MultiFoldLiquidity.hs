@@ -525,14 +525,14 @@ pmintRewardFoldPolicyW = phoistAcyclic $
         rfoldToken = Value.psingleton # pfromData ownPolicyId # rewardFoldTN # 1
         foldInitChecks =
           pand'List
-            [ pfromData numMinted #== 1
-            , foldOutDatumF.currNode #== refInpDat
-            , totalProjectTkns #== pvalueOf # foldOutputValue # lpTokenCS # lpTokenName
-            , totalProjectTkns #== projectInpDatF.totalLPTokens
-            , totalProjectTkns #>= 1
-            , pforgetPositive foldOutputValue #== collectedAda <> projectTokens <> rfoldToken
-            , projectInpDatF.totalCommitted #== foldOutDatumF.totalCommitted 
-            , pvalueOf # mintedValue # tokenHolderCS # projectTokenHolderTN #== -1
+            [ ptraceIfFalse "rfmint" $ pfromData numMinted #== 1
+            , ptraceIfFalse "rfn" $ foldOutDatumF.currNode #== refInpDat
+            , ptraceIfFalse "rftpt1" $ totalProjectTkns #== pvalueOf # foldOutputValue # lpTokenCS # lpTokenName
+            , ptraceIfFalse "rftpt2" $ totalProjectTkns #== projectInpDatF.totalLPTokens
+            , ptraceIfFalse "rftpt3" $ totalProjectTkns #>= 1
+            , ptraceIfFalse "rfv" $ pforgetPositive foldOutputValue #== collectedAda <> projectTokens <> rfoldToken
+            , ptraceIfFalse "rfc" $ projectInpDatF.totalCommitted #== foldOutDatumF.totalCommitted 
+            , ptraceIfFalse "rfbpth" $ pvalueOf # mintedValue # tokenHolderCS # projectTokenHolderTN #== -1
             ]
     pure $
       pif

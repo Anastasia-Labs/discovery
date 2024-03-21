@@ -1,5 +1,5 @@
 {
-    "cborHex": "4746010000222601",
+    "cborHex": "5828582601000022253357389201184c5b7372632f416c776179734661696c732e68733a31315d001601",
     "description": "Always Fails",
     "type": "PlutusScriptV2"
 }
