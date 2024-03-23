@@ -386,6 +386,7 @@ data PDistributionFoldMintConfig (s :: S)
                , "rewardScriptAddr" ':= PAddress
                , "lpCS" ':= PCurrencySymbol
                , "commitFoldCS" ':= PCurrencySymbol
+               , "projectAddr" ':= PAddress
                ]
           )
       )
@@ -402,7 +403,6 @@ data PDistributionFoldConfig (s :: S)
           ( PDataRecord
               '[ "nodeCS" ':= PCurrencySymbol
                , "lpCS" ':= PCurrencySymbol
-               , "projectAddr" ':= PAddress
                ]
           )
       )
@@ -474,7 +474,7 @@ pmustFindDatum =
 pmintRewardFoldPolicyW :: Term s (PDistributionFoldMintConfig :--> PMintingPolicy)
 pmintRewardFoldPolicyW = phoistAcyclic $
   plam $ \rewardConfig _redm ctx -> unTermCont $ do
-    rewardConfigF <- pletFieldsC @'["nodeCS", "tokenHolderCS", "rewardScriptAddr", "lpCS", "commitFoldCS"] rewardConfig
+    rewardConfigF <- pletFieldsC @'["nodeCS", "tokenHolderCS", "rewardScriptAddr", "lpCS", "commitFoldCS", "projectAddr"] rewardConfig
     contextFields <- pletFieldsC @'["txInfo", "purpose"] ctx
 
     PMinting policy <- pmatchC contextFields.purpose
@@ -497,9 +497,18 @@ pmintRewardFoldPolicyW = phoistAcyclic $
           pmustFind @PBuiltinList 
                   # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # tokenHolderCS # projectTokenHolderTN #== 1)
                   # txInputs
-              
+        
+        projectOutput = pfield @"resolved" #$          
+          pmustFind @PBuiltinList 
+                  # plam (\inp -> pfield @"address" # (pfield @"resolved" # inp) #== rewardConfigF.projectAddr)
+                  # txInputs
+      
         numMinted = psndBuiltin # tkPair
         foldOutput = ptryOutputToAddress # info.outputs # rewardConfigF.rewardScriptAddr
+
+    projectOutputF <- pletFieldsC @'["value", "datum"] projectOutput
+    (POutputDatum ((pfield @"outputDatum" #) -> projOutputDatum)) <- pmatchC projectOutputF.datum
+    let projOutDatum = punsafeCoerce @_ @_ @PData projOutputDatum
 
     projectInpF <- pletFieldsC @'["value", "datum"] projectInput
 
@@ -516,20 +525,26 @@ pmintRewardFoldPolicyW = phoistAcyclic $
     (POutputDatum foldOutputDatum) <- pmatchC foldOutputF.datum
     let foldOutDatum = pfromPDatum @PDistributionFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
     foldOutDatumF <- pletFieldsC @'["currNode", "totalProjectTokens", "totalCommitted"] foldOutDatum
-    totalProjectTkns <- pletC foldOutDatumF.totalProjectTokens
+    rewardFoldProjectTk <- pletC foldOutDatumF.totalProjectTokens
+    totalLPTokens <- pletC $ projectInpDatF.totalLPTokens 
+    raisedTokens <- pletC $ pdiv # totalLPTokens # 2
+    rewardFoldExpectedLPTokens <- pletC $ totalLPTokens - raisedTokens
     lpTokenCS <- pletC rewardConfigF.lpCS
     lpTokenName <- pletC projectInpDatF.lpTokenName 
     foldOutputValue <- pletC foldOutputF.value
-    let projectTokens = Value.psingleton # lpTokenCS # lpTokenName # totalProjectTkns
+
+    let raisedProjectTokens = Value.psingleton # lpTokenCS # lpTokenName # raisedTokens
+        foldProjectTokens = Value.psingleton # lpTokenCS # lpTokenName # rewardFoldExpectedLPTokens
         rfoldToken = Value.psingleton # pfromData ownPolicyId # rewardFoldTN # 1
         foldInitChecks =
           pand'List
             [ ptraceIfFalse "rfmint" $ pfromData numMinted #== 1
             , ptraceIfFalse "rfn" $ foldOutDatumF.currNode #== refInpDat
-            , ptraceIfFalse "rftpt1" $ totalProjectTkns #== pvalueOf # foldOutputValue # lpTokenCS # lpTokenName
-            , ptraceIfFalse "rftpt2" $ totalProjectTkns #== projectInpDatF.totalLPTokens
-            , ptraceIfFalse "rftpt3" $ totalProjectTkns #>= 1
-            , ptraceIfFalse "rfv" $ pforgetPositive (pnoAdaValue # foldOutputValue) #== projectTokens <> rfoldToken
+            , ptraceIfFalse "rftpt1" $ rewardFoldProjectTk #== pvalueOf # foldOutputValue # lpTokenCS # lpTokenName
+            , ptraceIfFalse "rftpt2" $ foldOutDatumF.totalProjectTokens #== rewardFoldExpectedLPTokens
+            , ptraceIfFalse "rfrpo" $ raisedProjectTokens #== pnoAdaValue # pforgetPositive projectOutputF.value
+            , ptraceIfFalse "rfrpd" $ projOutDatum #== pforgetData (pconstantData ())
+            , ptraceIfFalse "rfv" $ pforgetPositive (pnoAdaValue # foldOutputValue) #== foldProjectTokens <> rfoldToken
             , ptraceIfFalse "rfc" $ projectInpDatF.totalCommitted #== foldOutDatumF.totalCommitted 
             , ptraceIfFalse "rfbpth" $ pvalueOf # mintedValue # tokenHolderCS # projectTokenHolderTN #== -1
             ]

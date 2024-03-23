@@ -66,6 +66,7 @@ data PLNodeAction (s :: S)
   | PLModifyCommitment (Term s (PDataRecord '[]))
   | PLCommitFoldAct (Term s (PDataRecord '[]))
   | PLRewardFoldAct (Term s (PDataRecord '[]))
+  | PLClaimAct (Term s (PDataRecord '[]))
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData, PShow)
 
@@ -92,6 +93,7 @@ data PLBELockConfig (s :: S)
                , "penaltyAddress" ':= PAddress
                , "commitCred" ':= PStakingCredential
                , "rewardCred" ':= PStakingCredential
+               , "rewardFoldCS" ':= PCurrencySymbol
                ]
           )
       )
