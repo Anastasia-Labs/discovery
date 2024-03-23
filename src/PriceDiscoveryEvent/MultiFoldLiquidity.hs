@@ -498,10 +498,10 @@ pmintRewardFoldPolicyW = phoistAcyclic $
                   # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # tokenHolderCS # projectTokenHolderTN #== 1)
                   # txInputs
         
-        projectOutput = pfield @"resolved" #$          
+        projectOutput =         
           pmustFind @PBuiltinList 
-                  # plam (\inp -> pfield @"address" # (pfield @"resolved" # inp) #== rewardConfigF.projectAddr)
-                  # txInputs
+                  # plam (\inp -> pfield @"address" # inp #== rewardConfigF.projectAddr)
+                  # info.outputs
       
         numMinted = psndBuiltin # tkPair
         foldOutput = ptryOutputToAddress # info.outputs # rewardConfigF.rewardScriptAddr
