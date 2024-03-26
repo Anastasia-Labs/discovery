@@ -71,7 +71,7 @@ import PriceDiscoveryEvent.Utils (
   (#>), ptxSignedByPkh, pfoldl2, pvalueOfOneScott, pcountScriptInputs, pfindCurrencySymbolsByTokenName, pmustFind, (#>=),
  )
 import Types.Classes
-import Types.Constants (commitFoldTN, minAda, nodeAda, poriginNodeTN, rewardFoldTN, projectTokenHolderTN, foldingFee)
+import Types.Constants (commitFoldTN, minAda, nodeDepositAda, poriginNodeTN, rewardFoldTN, projectTokenHolderTN, foldingFee)
 import Types.LiquiditySet ( PLiquiditySetNode, PLiquidityHolderDatum )
 import Types.DiscoverySet (PNodeKey(..), PNodeKeyState(..))
 import qualified Plutarch.Api.V1 as V1
@@ -302,7 +302,7 @@ pisLiquiditySuccessor nodeCS accNode inputNode outputNode = unTermCont $ do
   let outputNodeDatum = punsafeCoerce @_ @_ @PLiquiditySetNode $ (ptryFromInlineDatum # outputNodeF.datum)  
   outputNodeDatumF <- pletFieldsC @'["key", "next", "commitment"] outputNodeDatum
 
-  nodeCommitment <- pletC $ (plovelaceValueOf # inputNodeValue) - 5_000_000
+  nodeCommitment <- pletC $ (plovelaceValueOf # inputNodeValue) - nodeDepositAda
   let nodeKey = toScott $ pfromData inputNodeDatumF.key
       owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) 
       successorChecks = 
@@ -443,7 +443,6 @@ data PDistributionFoldAct (s :: S)
                ]
           )
       )
-  | PDistributionFoldNode (Term s (PDataRecord '[]))
   | PDistributionReclaim (Term s (PDataRecord '[]))
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData)
@@ -634,12 +633,15 @@ prewardFoldValidatorW = phoistAcyclic $
     let dat = punsafeCoerce @_ @_ @PDistributionFoldDatum datum
         red = punsafeCoerce @_ @_ @PDistributionFoldAct redeemer
      in pmatch red $ \case
-          PDistributionFoldNode _ -> perror 
           PDistributionFoldNodes r -> pletFields @'["nodeIdxs", "nodeOutIdxs"] r $ \redF ->
             prewardFoldNodes # rewardConfig # redF.nodeIdxs # redF.nodeOutIdxs # dat # ctx
           PDistributionReclaim _ -> unTermCont $ do 
             PPubKeyCredential ((pfield @"_0" #) -> ownerPkh) <- pmatchC (pfield @"credential" # (pfield @"owner" # dat))
-            infoF <- pletFieldsC @'["signatories"] (pfield @"txInfo" # ctx)
+            ctxF <- pletFieldsC @'["txInfo", "purpose"] ctx
+            infoF <- pletFieldsC @'["inputs", "signatories", "mint"] ctxF.txInfo
+            PSpending ((pfield @"_0" #) -> ownRef) <- pmatchC ctxF.purpose
+            let ownInput = ptryOwnInput # infoF.inputs # ownRef
+            ownInputF <- pletFieldsC @'["value"] ownInput
             let signedByOwner = (ptxSignedByPkh # ownerPkh # infoF.signatories)
                 atEnd = pmatch
                           (pfield @"next" # (pfield @"currNode" # dat))
@@ -647,8 +649,17 @@ prewardFoldValidatorW = phoistAcyclic $
                               PEmpty _ -> pconstant True
                               PKey _ -> pconstant False
                           )
+                rewardCS = pheadSingleton # (pfindCurrencySymbolsByTokenName # ownInputF.value # rewardFoldTN)
+                rewardPair = pheadSingleton # (ptryLookupValue # rewardCS # infoF.mint)
+                rewardNFTMinted = psndBuiltin # rewardPair 
+                rewardReclaimChecks =
+                  pand'List 
+                    [ ptraceIfFalse "drc: nsbo" signedByOwner -- not signed by owner 
+                    , ptraceIfFalse "drc: nae" atEnd -- reward fold has not processed all nodes
+                    , ptraceIfFalse "drc: nrb" $ pfromData rewardNFTMinted #== -1 -- reward fold NFT has not been burned 
+                    ]
             pure $ 
-              pif (signedByOwner #&& atEnd)
+              pif rewardReclaimChecks
                   (popaque $ pconstant ())
                   perror 
 
@@ -748,7 +759,7 @@ prewardFoldNodes = phoistAcyclic $ plam $ \rewardConfig inputIdxs outputIdxs dat
 --     (POutputDatum nodeInpDatum) <- pmatchC nodeInputF.datum
 
 --     nodeInputValue <- pletC nodeInputF.value
---     nodeCommitment <- pletC $ plovelaceValueOf # nodeInputValue - nodeAda
+--     nodeCommitment <- pletC $ plovelaceValueOf # nodeInputValue - nodeDepositAda
 --     owedProjectTkns <- pletC $ pdiv # (nodeCommitment * datF.totalProjectTokens) # datF.totalCommitted
 --     -- doesn't work with no decimal tokens
 --     -- nodeOutputValue = nodeOutputValue + rewardFoldProjectTk - nodeInputAda

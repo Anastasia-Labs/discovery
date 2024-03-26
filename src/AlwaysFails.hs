@@ -6,6 +6,7 @@ module AlwaysFails (pAlwaysFails, pAuthMint) where
 import Plutarch.Prelude
 import Plutarch.Api.V2 
 import PriceDiscoveryEvent.Utils (pvalueOfOne)
+
 pAlwaysFails ::
   ClosedTerm PValidator
 pAlwaysFails  = plam $ \_dat _redmn _ctx' -> popaque $ perror

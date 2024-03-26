@@ -62,8 +62,11 @@ foldingFee = pconstant 1_000_000
 minAda :: Term s PInteger
 minAda = pconstant 2_000_000
 
-nodeAda :: Term s PInteger 
-nodeAda = pconstant 3_000_000
+-- 3 Ada for min UTxO Ada for the node UTxO 
+-- 1 Ada for the collection fold fee 
+-- 1 Ada for the reward fold fee 
+nodeDepositAda :: Term s PInteger 
+nodeDepositAda = pconstant 5_000_000
 
-minCommitment :: Term s PInteger 
-minCommitment = pconstant 4_000_000
+minAdaToCommit :: Term s PInteger 
+minAdaToCommit = pconstant 6_000_000

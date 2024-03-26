@@ -58,7 +58,7 @@ import PriceDiscoveryEvent.Utils (
   (#>),
   (#>=),
  )
-import Types.Constants (minAda, minCommitment, pcorrNodeTN, pnodeKeyTN, poriginNodeTN, pparseNodeKey)
+import Types.Constants (minAda, nodeDepositAda, minAdaToCommit, pcorrNodeTN, pnodeKeyTN, poriginNodeTN, pparseNodeKey)
 import Types.DiscoverySet (
   PNodeKey (..),
  )
@@ -117,8 +117,8 @@ parseNodeOutputUtxo cfg = phoistAcyclic $
     passert "Incorrect number of nodeTokens" $ amount #== 1
     passert "node is not ordered" $ validNode # datum
     passert "Incorrect token name" $ nodeKey #== datumKey
-    passert "Does not hold nodeAda" $
-      plovelaceValueOf # value #>= 5_000_000
+    passert "Does not hold required Ada" $
+      plovelaceValueOf # value #>= minAdaToCommit
     pcon (PPair value datum)
 
 makeCommon ::
@@ -315,10 +315,10 @@ pRemove cfg common vrange discConfig outs sigs = plam $ \pkToRemove node -> P.do
   configF <- pletFields @'["discoveryDeadline", "penaltyAddress"] discConfig
 
   let ownInputLovelace = plovelaceValueOf # removedValue
-      ownInputFee = pdivideCeil # (ownInputLovelace - 4_000_000) # 4
-      discDeadline = configF.discoveryDeadline
-  
-  let finalCheck =
+      discDeadline = pfromData configF.discoveryDeadline
+  ownInputFee' <- plet $ pdivideCeil # (ownInputLovelace - nodeDepositAda) # 4
+  let ownInputFee = pif (ownInputFee' #>= nodeDepositAda) ownInputFee' nodeDepositAda
+      finalCheck =
           -- user committing before deadline 
           ( pif
               (pafter # (discDeadline - 86_400_000) # vrange) -- user committing before 24 hours before deadline

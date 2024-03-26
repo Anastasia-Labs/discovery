@@ -28,7 +28,7 @@ import Plutarch.Extra.ScriptContext (pfromPDatum)
 import Plutarch.Monadic qualified as P
 import Plutarch.Prelude
 import Plutarch.Unsafe (punsafeCoerce)
-import PriceDiscoveryEvent.Utils (passert, pcontainsCurrencySymbols, pfindCurrencySymbolsByTokenPrefix, pheadSingleton, ptryOwnInput, ptryOwnOutput, phasCS, pisFinite, pmustFind)
+import PriceDiscoveryEvent.Utils (passert, pcontainsCurrencySymbols, pfindCurrencySymbolsByTokenPrefix, pheadSingleton, ptryOwnInput, ptryOwnOutput, phasCS, pisFinite, pmustFind, pand'List)
 import Types.Constants (rewardFoldTN)
 import Types.LiquiditySet (PLBELockConfig (..), PLiquiditySetNode (..), PLNodeAction (..))
 import PriceDiscoveryEvent.MultiFoldLiquidity (PDistributionFoldDatum (..))
@@ -104,26 +104,39 @@ pLiquiditySetValidator cfg prefix = plam $ \discConfig dat redmn ctx' ->
             passert "vrange not finite" (pisFinite # info.validRange)
             (popaque $ pconstant ()) 
           PLClaimAct _ -> P.do
-            configF <- pletFields @'["rewardFoldCS"] discConfig
-            let nodeKey = pmatch (pfield @"key" # oldDatum) $ \case
-                  PEmpty _ -> perror
-                  PKey ((pfield @"_0" #) -> nkey) -> pdata $ pcon $ PPubKeyHash $ pfromData nkey 
-                foldRefInput = pfield @"resolved" #$          
-                  pmustFind @PBuiltinList 
-                    # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # configF.rewardFoldCS # rewardFoldTN #== 1)
-                    # info.referenceInputs
-            foldRefInputF <- pletFields @'["datum"] foldRefInput
-            POutputDatum ((pfield @"outputDatum" #) -> rFoldD) <- pmatch foldRefInputF.datum
-            let rFoldDatum = punsafeCoerce @_ @_ @PDistributionFoldDatum rFoldD
-                atEnd = pmatch
-                          (pfield @"next" # (pfield @"currNode" # rFoldDatum))
-                          ( \case
-                              PEmpty _ -> pconstant True
-                              PKey _ -> pconstant False
-                          )
-            passert "RFold not completed" atEnd
-            passert "signed by user." (pelem # nodeKey # info.signatories)
-            passert "No tokens minted" (pfromData info.mint #== mempty)
-            (popaque $ pconstant ()) 
+            configF <- pletFields @'["rewardFoldCS", "discoveryDeadline"] discConfig
+            vrange <- plet info.validRange
+            let commonChecks = 
+                  pand'List
+                    [ ptraceIfFalse "pclaim missing sig" $ pelem # nodeKey # info.signatories 
+                    , ptraceIfFalse "pclaim no minting" $ pfromData info.mint #== mempty
+                    , ptraceIfFalse "vrange not bound" $ pisFinite # vrange
+                    ] 
+                nodeKey = pmatch (pfield @"key" # oldDatum) $ \case
+                      PEmpty _ -> perror
+                      PKey ((pfield @"_0" #) -> nkey) -> pdata $ pcon $ PPubKeyHash $ pfromData nkey 
+            pif commonChecks 
+            -- if a day has past since the deadline then user can claim without referencing the fold 
+              (pif (pbefore # (pfromData configF.discoveryDeadline + 86_400_000) # vrange)
+                (popaque $ pconstant ())
+                -- otherwise the user must include the reward fold utxo as a reference input 
+                -- and the reward fold must be complete (next is null)
+                (P.do
+                  let foldRefInput = pfield @"resolved" #$          
+                        pmustFind @PBuiltinList 
+                          # plam (\inp -> pvalueOf # (pfield @"value" # (pfield @"resolved" # inp)) # configF.rewardFoldCS # rewardFoldTN #== 1)
+                          # info.referenceInputs
+                  foldRefInputF <- pletFields @'["datum"] foldRefInput
+                  POutputDatum ((pfield @"outputDatum" #) -> rFoldD) <- pmatch foldRefInputF.datum
+                  let rFoldDatum = punsafeCoerce @_ @_ @PDistributionFoldDatum rFoldD
+                  pmatch
+                    (pfield @"next" # (pfield @"currNode" # rFoldDatum))
+                    ( \case
+                        PEmpty _ -> (popaque $ pconstant ())
+                        PKey _ -> ptrace "pclaim RFold not complete" perror 
+                    )           
+                ) 
+              )
+              perror 
         
 -- TODO PlaceHolder # This contribution holds only the minimum amount of Ada + the FoldingFee, it cannot be updated. It cannot be removed until the reward fold has completed.

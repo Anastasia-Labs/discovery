@@ -73,11 +73,11 @@ mkLiquidityNodeMP cfg = plam $ \discConfig redm ctx -> P.do
     PLRemove action -> P.do
       configF <- pletFields @'["discoveryDeadline"] discConfig
       act <- pletFields @'["keyToRemove", "coveringNode"] action
-      discDeadline <- plet configF.discoveryDeadline
+      discDeadline <- plet (pfromData configF.discoveryDeadline)
       passert "vrange not finite" (pisFinite # vrange)
       pcond 
-        [ ((pbefore # discDeadline # vrange), (pClaim cfg common outs sigs # act.keyToRemove))
-        , ((pafter # discDeadline # vrange), (pRemove cfg common vrange discConfig outs sigs # act.keyToRemove # act.coveringNode))
+        [ ((pbefore # (discDeadline + 86_400_000) # vrange), (pClaim cfg common outs sigs # act.keyToRemove))
+        , ((pafter # (discDeadline - 86_400_000) # vrange), (pRemove cfg common vrange discConfig outs sigs # act.keyToRemove # act.coveringNode))
         ]
         perror 
 

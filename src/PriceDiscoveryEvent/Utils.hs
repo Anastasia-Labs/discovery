@@ -711,3 +711,8 @@ pisFinite = plam $ \i ->
         PFinite _ -> pconstant True 
         _ -> pconstant False
    in pand' # isFiniteFrom # isFiniteTo
+
+pmapAndConvertList :: (PIsListLike listA a, PIsListLike listB b) => Term s ((a :--> b) :--> listA a :--> listB b)
+pmapAndConvertList = phoistAcyclic $
+  plam $ \f ->
+    pfix #$ plam $ \self xs -> pelimList (\y ys -> pcons # (f # y) # (self # ys)) pnil xs 

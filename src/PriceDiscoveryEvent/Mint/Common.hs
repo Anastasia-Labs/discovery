@@ -58,7 +58,7 @@ import PriceDiscoveryEvent.Utils (
   (#>),
   (#>=),
  )
-import Types.Constants (minAda, minCommitment, pcorrNodeTN, pnodeKeyTN, poriginNodeTN, pparseNodeKey)
+import Types.Constants (minAda, minAdaToCommit, pcorrNodeTN, pnodeKeyTN, poriginNodeTN, pparseNodeKey)
 import Types.DiscoverySet (
   PDiscoveryConfig,
   PDiscoverySetNode,
@@ -126,7 +126,7 @@ parseNodeOutputUtxo cfg = phoistAcyclic $
     passert "node is not ordered" $ validNode # datum
     passert "Incorrect token name" $ nodeKey #== datumKey
     passert "Does not hold nodeAda" $
-      plovelaceValueOf # value #>= minCommitment
+      plovelaceValueOf # value #>= minAdaToCommit
     pcon (PPair value datum)
 
 makeCommon ::

@@ -74,7 +74,7 @@ import PriceDiscoveryEvent.Utils (
   pfindCurrencySymbolsByTokenName, pcountOfUniqueTokens,
  )
 import Types.Classes
-import Types.Constants (commitFoldTN, minAda, nodeAda, poriginNodeTN, rewardFoldTN, projectTokenHolderTN, foldingFee)
+import Types.Constants (commitFoldTN, minAda, nodeDepositAda, poriginNodeTN, rewardFoldTN, projectTokenHolderTN, foldingFee)
 import Types.DiscoverySet
 
 data PFoldMintConfig (s :: S)
@@ -262,7 +262,7 @@ pisSuccessor = plam $ \nodeCS accNode node -> unTermCont $ do
         pcon @PCommitFoldState
           accNodeF
             { next = toScott (pfromData currNodeF.next)
-            , committed = accNodeF.committed + (plovelaceValueOf # nodeValue) - nodeAda
+            , committed = accNodeF.committed + (plovelaceValueOf # nodeValue) - nodeDepositAda
             -- , num = accNodeF.num + 1
             }
   pure $ pif (pand' # (accNodeF.next #== nodeKey) # hasNodeTk) accState perror
@@ -394,7 +394,6 @@ data PRewardsFoldAct (s :: S)
                ]
           )
       )
-  | PRewardsFoldNode (Term s (PDataRecord '[]))
   | PRewardsReclaim (Term s (PDataRecord '[]))
   deriving stock (Generic)
   deriving anyclass (PlutusType, PIsData)
@@ -512,13 +511,13 @@ prewardSuccessor nodeCS projectCS projectTN totalProjectTokens totalCommitted st
   let nodeInpDat = punsafeCoerce @_ @_ @PDiscoverySetNode (pfield @"outputDatum" # nodeInpDatum)
   nodeInDatF <- pletFieldsC @'["key", "next"] nodeInpDat
   
-  nodeCommitment <- pletC $ plovelaceValueOf # inputValue - nodeAda
+  nodeCommitment <- pletC $ plovelaceValueOf # inputValue - nodeDepositAda
   owedProjectTokens <- pletC $ pdiv # (nodeCommitment * totalProjectTokens) # totalCommitted
 
   nodeOutputF <- pletFieldsC @'["address", "value", "datum"] outputNode
   nodeOutputValue <- pletC $ nodeOutputF.value 
   let owedProjectValue = Value.psingleton # projectCS # projectTN # owedProjectTokens 
-      owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - foldingFee) 
+      owedAdaValue = Value.psingleton # padaSymbol # padaToken # ((-nodeCommitment) - (foldingFee * 2) ) 
       nodeKey = toScott $ pfromData nodeInDatF.key
       successorChecks = 
         pand'List 
@@ -564,7 +563,6 @@ prewardFoldValidatorW = phoistAcyclic $
     let dat = punsafeCoerce @_ @_ @PRewardFoldDatum datum
         red = punsafeCoerce @_ @_ @PRewardsFoldAct redeemer
      in pmatch red $ \case
-          PRewardsFoldNode _ -> prewardFoldNode # rewardConfig # dat # ctx
           PRewardsFoldNodes r -> pletFields @'["nodeIdxs", "nodeOutIdxs"] r $ \redF ->
             prewardFoldNodes # rewardConfig # redF.nodeIdxs # redF.nodeOutIdxs # dat # ctx
           PRewardsReclaim _ -> unTermCont $ do 
@@ -647,69 +645,3 @@ prewardFoldNodes = phoistAcyclic $ plam $ \rewardConfig inputIdxs outputIdxs dat
           ]
   pure $
       pif foldChecks (popaque (pconstant ())) perror
-
-prewardFoldNode :: Term s (PRewardFoldConfig :--> PRewardFoldDatum :--> PScriptContext :--> POpaque)
-prewardFoldNode = phoistAcyclic $
-  plam $ \rewardConfig dat ctx -> unTermCont $ do
-    rewardConfigF <- pletFieldsC @'["nodeCS", "projectTN", "projectCS", "projectAddr"] rewardConfig
-    ctxF <- pletFieldsC @'["txInfo", "purpose"] ctx
-    info <- pletFieldsC @'["inputs", "outputs", "referenceInputs", "mint"] ctxF.txInfo
-
-    PSpending ((pfield @"_0" #) -> ownRef) <- pmatchC ctxF.purpose
-    let ownInput = ptryOwnInput # info.inputs # ownRef
-    ownInputF <- pletFieldsC @'["address", "value"] ownInput
-    PScriptCredential ((pfield @"_0" #) -> ownValHash) <- pmatchC (pfield @"credential" # ownInputF.address)
-
-    datF <- pletFieldsC @'["currNode", "totalProjectTokens", "totalCommitted", "owner"] dat
-    currFoldNodeF <- pletFieldsC @'["key", "next"] datF.currNode
-
-    txOuts <- pletC info.outputs
-    let ownOutput = ptryOwnOutput # txOuts # ownValHash
-    ownOutputF <- pletFieldsC @'["address", "value", "datum"] ownOutput
-    (POutputDatum foldOutputDatum) <- pmatchC ownOutputF.datum
-
-    let foldOutDatum = pfromPDatum @PRewardFoldDatum # (pfield @"outputDatum" # foldOutputDatum)
-    foldOutDatumF <- pletFieldsC @'["currNode", "totalProjectTokens", "totalCommitted", "owner"] foldOutDatum
-    oldTotalProjectTokens <- pletC datF.totalProjectTokens
-    oldTotalCommitted <- pletC datF.totalCommitted
-    nodeCSS <- pletC $ pfromData rewardConfigF.nodeCS
-    let nodeInputs =
-          pfilter @PBuiltinList
-            # plam (\inp -> (pvalueOfOneScott # nodeCSS # (pfield @"value" # (pfield @"resolved" # inp))))
-            # info.inputs
-    nodeInputF <- pletFieldsC @'["address", "value", "datum"] (pfield @"resolved" # (pheadSingleton # nodeInputs))
-    (POutputDatum nodeInpDatum) <- pmatchC nodeInputF.datum
-
-    nodeInputValue <- pletC nodeInputF.value
-    
-    nodeCommitment <- pletC $ plovelaceValueOf # nodeInputValue - nodeAda
-    owedProjectTkns <- pletC $ pdiv # (nodeCommitment * oldTotalProjectTokens) # oldTotalCommitted
-    -- doesn't work with no decimal tokens
-    let nodeInpDat = punsafeCoerce @_ @_ @PDiscoverySetNode (pfield @"outputDatum" # nodeInpDatum)
-    nodeInpDatF <- pletFieldsC @'["key", "next"] nodeInpDat
-
-    let nodeOutput = ptryOutputToAddress # txOuts # nodeInputF.address
-    nodeOutputF <- pletFieldsC @'["value"] nodeOutput
-
-    mkProjValue <- pletC $ Value.psingleton # rewardConfigF.projectCS # rewardConfigF.projectTN
-    mkAdaValue <- pletC $ Value.psingleton # padaSymbol # padaToken
-    distributedValue <- pletC $ mkProjValue # (-owedProjectTkns)
-    posDistributedValue <- pletC $ mkProjValue # owedProjectTkns
-    collectedAdaValue <- pletC $ mkAdaValue # ((-nodeCommitment) - foldingFee) 
-    posCollectedAdaValue <- pletC $ mkAdaValue # nodeCommitment
-
-    let correctOwnOutput = (pforgetPositive ownInputF.value) <> distributedValue 
-        correctNodeOutput = (pforgetPositive nodeInputValue <> posDistributedValue) <> collectedAdaValue
-        projectOut = ptryOutputToAddress # txOuts # rewardConfigF.projectAddr
-    let foldChecks =
-          pand'List
-            [ currFoldNodeF.next #== nodeInpDatF.key,
-              foldOutDatumF.currNode #== nodeInpDat,
-              foldOutDatumF.totalCommitted #== oldTotalCommitted,
-              foldOutDatumF.totalProjectTokens #== oldTotalProjectTokens,
-              foldOutDatumF.owner #== datF.owner,
-              (pnoAdaValue # correctOwnOutput ) #== (pnoAdaValue #$ pforgetPositive ownOutputF.value),
-              correctNodeOutput #== (pforgetPositive nodeOutputF.value),
-              pforgetPositive (pfield @"value" # projectOut) #== posCollectedAdaValue
-            ]
-    pure $ pif foldChecks (popaque (pconstant ())) perror
