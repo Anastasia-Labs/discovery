@@ -77,7 +77,7 @@ mkLiquidityNodeMP cfg = plam $ \discConfig redm ctx -> P.do
       passert "vrange not finite" (pisFinite # vrange)
       pcond 
         [ ((pbefore # (discDeadline + 86_400_000) # vrange), (pClaim cfg common outs sigs # act.keyToRemove))
-        , ((pafter # (discDeadline - 86_400_000) # vrange), (pRemove cfg common vrange discConfig outs sigs # act.keyToRemove # act.coveringNode))
+        , ((pafter # discDeadline # vrange), (pRemove cfg common vrange discConfig outs sigs # act.keyToRemove # act.coveringNode))
         ]
         perror 
 
